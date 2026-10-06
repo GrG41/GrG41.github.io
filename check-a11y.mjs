@@ -136,26 +136,47 @@ check("抽屉是原生 details（不靠脚本开关）", drawer.isDetails && dra
 check("抽屉是内容层的**兄弟**节点，且 z-index 更低（层级意义上的底部）",
   drawer.siblings && Number(drawer.zSite) > Number(drawer.zPanel), JSON.stringify(drawer));
 
-await page.locator("summary.menubtn").click();
-await page.waitForTimeout(420);     // 内容右移有 240ms 过渡，量早了读到 0（同 no-JS 那条）
-const opened = await page.evaluate(() => {
+// 抽屉的行为分两种宽度验：宽屏谈「让开」，窄屏谈「占满且不溢出」。
+const reveal = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: "zh-CN" });
+await reveal.goto(URL, { waitUntil: "load" });
+await reveal.locator("summary.menubtn").click();
+await reveal.waitForTimeout(420);
+const opened = await reveal.evaluate(() => {
   const d = document.querySelector("details.drawer"), s = document.querySelector(".site");
-  const m = new DOMMatrixReadOnly(getComputedStyle(s).transform);
   const p = document.querySelector(".drawer-panel").getBoundingClientRect();
   const hit = document.elementFromPoint(p.left + p.width / 2, p.top + p.height / 2);
-  return { open: d.open, shifted: Math.round(m.m41), panelWidth: Math.round(p.width),
+  const se = document.scrollingElement;
+  return { open: d.open, contentLeft: Math.round(s.getBoundingClientRect().left),
+           overflow: se.scrollWidth - se.clientWidth, panelWidth: Math.round(p.width),
            hitInside: !!(hit && hit.closest(".drawer-panel")) };
 });
-check("点按钮能展开抽屉", opened.open, JSON.stringify(opened));
-check("展开时内容右移（把抽屉让出来，而不是盖上）", opened.shifted > 100, JSON.stringify(opened));
-check("展开后抽屉可点（没有被内容层盖住）", opened.hitInside, JSON.stringify(opened));
-await page.keyboard.press("Tab");
-check("展开后按 Tab 能进入抽屉", await page.evaluate(() => document.querySelector(".drawer-panel").contains(document.activeElement)));
-await page.keyboard.press("Escape");
-const closed = await page.evaluate(() => ({
+check("宽屏：展开时内容让开（左边缘 >100px，把抽屉露出来而不是盖上）", opened.contentLeft > 100, JSON.stringify(opened));
+check("宽屏：展开时抽屉可点（没被内容层盖住）", opened.hitInside, JSON.stringify(opened));
+check("宽屏：展开状态下仍然没有横向溢出", opened.overflow <= 1, `溢出 ${opened.overflow}px`);
+await reveal.keyboard.press("Tab");
+check("展开后按 Tab 能进入抽屉",
+  await reveal.evaluate(() => document.querySelector(".drawer-panel").contains(document.activeElement)));
+await reveal.keyboard.press("Escape");
+const closed = await reveal.evaluate(() => ({
   open: document.querySelector("details.drawer").open,
   focusBack: document.activeElement === document.querySelector("summary.menubtn") }));
 check("Esc 能关闭抽屉（增强），焦点回到按钮", !closed.open && closed.focusBack, JSON.stringify(closed));
+await reveal.close();
+
+// 窄屏（320px）：抽屉占满、内容收起、不许溢出
+await page.locator("summary.menubtn").click();
+await page.waitForTimeout(420);
+const narrow = await page.evaluate(() => {
+  const p = document.querySelector(".drawer-panel").getBoundingClientRect();
+  const se = document.scrollingElement;
+  const hit = document.elementFromPoint(p.left + p.width / 2, p.top + p.height / 2);
+  return { panelWidth: Math.round(p.width), vw: window.innerWidth,
+           overflow: se.scrollWidth - se.clientWidth,
+           hitInside: !!(hit && hit.closest(".drawer-panel")) };
+});
+check("窄屏：抽屉占满宽度且可点、内容收起后不溢出",
+  narrow.panelWidth >= narrow.vw - 2 && narrow.overflow <= 1 && narrow.hitInside, JSON.stringify(narrow));
+await page.keyboard.press("Escape");
 
 // ── 站内链接：必须是**真链接**且都指向存在的文件 ─────────────────────────────
 const links = await page.evaluate(() => ({
@@ -234,10 +255,11 @@ await p2.locator("summary.menubtn").click();
 await p2.waitForTimeout(420);        // 内容右移有 240ms 过渡，量早了会读到 0（第一版就是这么错的）
 const noJsOpen = await p2.evaluate(() => {
   const d = document.querySelector("details.drawer");
-  const m = new DOMMatrixReadOnly(getComputedStyle(document.querySelector(".site")).transform);
-  return { open: d.open, shifted: Math.round(m.m41) };
-});
-check("禁 JS 也能展开抽屉并把内容让开（原生 details + CSS）", noJsOpen.open && noJsOpen.shifted > 100, JSON.stringify(noJsOpen));
+  const s2 = document.querySelector(".site");
+  return { open: d.open, contentLeft: Math.round(s2.getBoundingClientRect().left),
+           hidden: getComputedStyle(s2).visibility }; });
+check("禁 JS 也能展开抽屉并把内容让开（原生 details + CSS）",
+  noJsOpen.open && (noJsOpen.contentLeft > 100 || noJsOpen.hidden === "hidden"), JSON.stringify(noJsOpen));
 const noJsLang = await p2.evaluate(() => {
   const as = [...document.querySelectorAll(".bar .lang a")].map((a) => a.getAttribute("href") || "");
   return { n: as.length, hrefs: as, ok: as.length === 3 && as.every((h) => h.startsWith("/")) };

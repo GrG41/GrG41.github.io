@@ -71,8 +71,16 @@
     background:var(--surface); border-right:1px solid var(--line); overflow:auto; padding-top:3.1rem; }
   .site { position:relative; z-index:1; background-color:var(--bg); background-image:url("bg.svg");
     background-size:cover; background-position:center top; background-attachment:fixed; min-height:100vh; }
-  body:has(.drawer[open]) .site { transform:translateX(min(19rem, 84vw));
+  /* 让开的方式：**让左边距**，不是 transform。transform 不重排，内容会整块被挤出屏幕右边
+     （实测展开后顶栏与面板都被切掉）。margin 会重排，所以还看得全。 */
+  body:has(.drawer[open]) .site { margin-left:min(19rem, 84vw);
     box-shadow:-14px 0 40px -18px rgba(0,0,0,.9); }
+  /* 窄屏（放大看屏的等效宽度）下「让开」没有意义：内容只剩几十像素，必然溢出。
+     这时候抽屉占满、内容收起——这一条是判据逼出来的（实测展开后溢出 159px）。 */
+  @media (max-width: 34rem) {
+    .drawer-panel { width:100%; }
+    body:has(.drawer[open]) .site { margin-left:0; visibility:hidden; }
+  }
   .drawer-head { position:sticky; top:0; display:flex; align-items:center; justify-content:space-between;
     gap:1rem; padding:.7rem .9rem; background:var(--surface2); border-bottom:1px solid var(--line);
     font-size:.9rem; letter-spacing:.05em; }
@@ -180,7 +188,7 @@
     header.hero { box-shadow:0 1px 0 0 var(--line), 0 14px 40px -28px rgba(0,0,0,.9); }
     header.hero:hover { border-color:color-mix(in oklab, var(--accent) 45%, var(--line)); }
     .mk { display:inline-block; }
-    .site { transition: transform .24s ease, box-shadow .24s ease; }
+    .site { transition: margin-left .24s ease, box-shadow .24s ease; }
     .drawer-panel { transition: opacity .18s ease; }
     details.row[open] .mk { transform:rotate(180deg); }
     /* 展开动画：只在新浏览器上生效（::details-content 目前仅 Chromium 支持）。
@@ -326,7 +334,7 @@
     <footer><div class="foot">
       <ul class="chips">
     <li>源码即本页</li>
-    <li>判据 39 条可跑</li>
+    <li>判据 40 条可跑</li>
     <li><kbd>Tab</kbd> 可达全部控件</li>
     <li>最后更新 <time datetime="2026-10-06">2026-10-06</time></li>
       </ul>
