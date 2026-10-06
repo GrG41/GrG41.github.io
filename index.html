@@ -87,6 +87,28 @@
   .rows dt .meta { color:var(--muted); font-weight:400; font-size:.85rem;
     font-variant-numeric:tabular-nums; letter-spacing:.03em; white-space:nowrap; }
   .rows dd { margin:.2rem 0 0; }
+
+  /* 可折叠条目：用原生 details/summary —— 不依赖 JavaScript、键盘可达、
+     读屏器自己会念「展开/折叠」。自己造轮子就得自己承担这些风险，不划算。 */
+  details.row { border-bottom:1px solid var(--line); }
+  details.row:last-child { border-bottom:0; }
+  details.row > summary { display:grid; grid-template-columns:1fr auto auto; align-items:baseline;
+    gap:.25rem .7rem; padding:.6rem .85rem; cursor:pointer; list-style:none; }
+  details.row > summary::-webkit-details-marker { display:none; }
+  details.row > summary::marker { content:""; }
+  details.row > summary:hover { background:color-mix(in oklab, var(--surface2) 70%, transparent); }
+  details.row > summary:focus-visible { outline:3px solid var(--accent); outline-offset:-3px; }
+  .rt { font-weight:650; }
+  .meta { color:var(--muted); font-size:.85rem; font-variant-numeric:tabular-nums;
+    letter-spacing:.03em; white-space:nowrap; }
+  .rd { grid-column:1 / -1; }
+  /* 开合记号：**形状变化，不是颜色变化**——折叠时＋、展开时－。 */
+  .mk { font-size:.8rem; color:var(--muted); background:var(--surface2);
+    border:1px solid var(--line); border-radius:3px; padding:0 .3rem; line-height:1.4; }
+  .mk::after { content:"＋"; }
+  details[open] .mk::after { content:"−"; }
+  .rb { padding:0 .85rem .75rem; color:var(--muted); border-top:1px dashed var(--line);
+    margin:0 .85rem; padding:.5rem 0 .7rem; }
   main { margin-top:1.5rem; }
   /* 小节标题做成一格「页签条」：左标题、右序号，与参考图的分区头同形。 */
   /* 小节标题 = 面板头（参考图里每个列表上方都有一条带头栏）。 */
@@ -166,7 +188,7 @@
   <p class="muted">这一页既是门面，也是样品：它的写法就是我的工作方式。</p>
   <ul class="chips">
     <li>三语 · 自动切换</li><li>默认暗色</li>
-    <li>无障碍判据 47 条（可跑）</li><li>背景自绘 · 无外部素材</li>
+    <li>无障碍判据 53 条（可跑）</li><li>背景自绘 · 无外部素材</li>
   </ul>
 </header>
 <main id="main">
@@ -174,11 +196,11 @@
   <div class="panel">
     <p class="phead"><span>维护周期</span><span>按月 / 按需</span></p>
     <dl class="rows">
-      <div class="row"><dt>依赖升级<span class="meta">构建 + 测试</span></dt><dd>版本、哈希、构建、测试；失败也留档，不只报成功。</dd></div>
-      <div class="row"><dt>判据与 CI<span class="meta">反证用例</span></dt><dd>把踩过的坑做成<strong>会翻脸</strong>的检查：我提供「坏样本能被判失败」的证明。</dd></div>
-      <div class="row"><dt>多语文档同步<span class="meta">数字相等</span></dt><dd>判据是各语言条目数一致，不是「我翻译过了」。</dd></div>
-      <div class="row"><dt>维护日志<span class="meta">可回溯到提交</span></dt><dd>逐条能回溯；改了什么、为什么改，都在同一处。</dd></div>
-      <div class="row"><dt>事故复盘<span class="meta">判据缺口</span></dt><dd>时间线、根因，以及「哪一条判据当时没响、现在补上没有」。</dd></div>
+      <details class="row"><summary><span class="rt">依赖升级</span><span class="meta">构建 + 测试</span><span class="mk" aria-hidden="true"></span><span class="rd">版本、哈希、构建、测试；失败也留档，不只报成功。</span></summary><div class="rb">证据：版本与哈希对照、构建日志、测试输出；失败的那一次也一并留档。</div></details>
+      <details class="row"><summary><span class="rt">判据与 CI</span><span class="meta">反证用例</span><span class="mk" aria-hidden="true"></span><span class="rd">把踩过的坑做成<strong>会翻脸</strong>的检查：我提供「坏样本能被判失败」的证明。</span></summary><div class="rb">证据：判据脚本本体，加一个已知坏样本的反证（它必须失败），绿与红两次输出都附上。</div></details>
+      <details class="row"><summary><span class="rt">多语文档同步</span><span class="meta">数字相等</span><span class="mk" aria-hidden="true"></span><span class="rd">判据是各语言条目数一致，不是「我翻译过了」。</span></summary><div class="rb">证据：各语言条目数与链接可达性检查；不一致时直接报差多少条。</div></details>
+      <details class="row"><summary><span class="rt">维护日志</span><span class="meta">可回溯到提交</span><span class="mk" aria-hidden="true"></span><span class="rd">逐条能回溯；改了什么、为什么改，都在同一处。</span></summary><div class="rb">证据：提交号、变更摘要、以及改它的理由——每条都能点回那一次提交。</div></details>
+      <details class="row"><summary><span class="rt">事故复盘</span><span class="meta">判据缺口</span><span class="mk" aria-hidden="true"></span><span class="rd">时间线、根因，以及「哪一条判据当时没响、现在补上没有」。</span></summary><div class="rb">证据：时间线、根因、当时没响的那条判据，以及为此补上的新判据。</div></details>
     </dl>
   </div>
 
@@ -222,7 +244,7 @@
   <p class="muted">This page is both the shopfront and the sample: how it is written is how I work.</p>
   <ul class="chips">
     <li>Three languages, auto-switched</li><li>Dark by default</li>
-    <li>47 accessibility checks (runnable)</li><li>Self-drawn background</li>
+    <li>53 accessibility checks (runnable)</li><li>Self-drawn background</li>
   </ul>
 </header>
 <main>
@@ -230,11 +252,11 @@
   <div class="panel">
     <p class="phead"><span>Maintenance cycle</span><span>monthly / on demand</span></p>
     <dl class="rows">
-      <div class="row"><dt>Dependency upgrades<span class="meta">build + tests</span></dt><dd>Version, hash, build, tests — failures are recorded too, not just successes.</dd></div>
-      <div class="row"><dt>Criteria &amp; CI<span class="meta">counterexample</span></dt><dd>Every pitfall becomes a check that <strong>can flip</strong>; I ship the counterexample proving it fails on bad input.</dd></div>
-      <div class="row"><dt>Multi-language doc sync<span class="meta">equal counts</span></dt><dd>The criterion is equal entry counts across languages, not “I translated it”.</dd></div>
-      <div class="row"><dt>Maintenance log<span class="meta">traces to commits</span></dt><dd>What changed and why, in one place, each entry traceable to a commit.</dd></div>
-      <div class="row"><dt>Incident postmortems<span class="meta">criteria gaps</span></dt><dd>Timeline, root cause, and which criterion stayed silent — now fixed.</dd></div>
+      <details class="row"><summary><span class="rt">Dependency upgrades</span><span class="meta">build + tests</span><span class="mk" aria-hidden="true"></span><span class="rd">Version, hash, build, tests — failures are recorded too, not just successes.</span></summary><div class="rb">Evidence: version and hash diff, build log, test output — including the run that failed.</div></details>
+      <details class="row"><summary><span class="rt">Criteria &amp; CI</span><span class="meta">counterexample</span><span class="mk" aria-hidden="true"></span><span class="rd">Every pitfall becomes a check that <strong>can flip</strong>; I ship the counterexample proving it fails on bad input.</span></summary><div class="rb">Evidence: the check itself, plus a known-bad sample that makes it fail — both the green and the red output.</div></details>
+      <details class="row"><summary><span class="rt">Multi-language doc sync</span><span class="meta">equal counts</span><span class="mk" aria-hidden="true"></span><span class="rd">The criterion is equal entry counts across languages, not “I translated it”.</span></summary><div class="rb">Evidence: per-language counts and a link check; if they differ, it reports by how many entries.</div></details>
+      <details class="row"><summary><span class="rt">Maintenance log</span><span class="meta">traces to commits</span><span class="mk" aria-hidden="true"></span><span class="rd">What changed and why, in one place, each entry traceable to a commit.</span></summary><div class="rb">Evidence: commit ids, change summary, and the reason — every entry links back to that commit.</div></details>
+      <details class="row"><summary><span class="rt">Incident postmortems</span><span class="meta">criteria gaps</span><span class="mk" aria-hidden="true"></span><span class="rd">Timeline, root cause, and which criterion stayed silent — now fixed.</span></summary><div class="rb">Evidence: timeline, root cause, the criterion that stayed silent, and the new one added because of it.</div></details>
     </dl>
   </div>
 
@@ -278,7 +300,7 @@
   <p class="muted">このページは名刺であり、同時に作品見本です。書き方が、そのまま私の仕事のやり方です。</p>
   <ul class="chips">
     <li>三言語・自動切替</li><li>既定は暗色</li>
-    <li>アクセシビリティ判定 47 項目（実行可能）</li><li>背景は自作・外部素材なし</li>
+    <li>アクセシビリティ判定 53 項目（実行可能）</li><li>背景は自作・外部素材なし</li>
   </ul>
 </header>
 <main>
@@ -286,11 +308,11 @@
   <div class="panel">
     <p class="phead"><span>保守サイクル</span><span>毎月 / 随時</span></p>
     <dl class="rows">
-      <div class="row"><dt>依存関係の更新<span class="meta">ビルド + テスト</span></dt><dd>バージョン・ハッシュ・ビルド・テスト。失敗も記録します。成功だけを報告しません。</dd></div>
-      <div class="row"><dt>判定基準と CI<span class="meta">反証つき</span></dt><dd>踏んだ穴は<strong>反転できる</strong>検査にします。「悪い入力で落ちる」反証つきで納品します。</dd></div>
-      <div class="row"><dt>多言語ドキュメント同期<span class="meta">件数の一致</span></dt><dd>判定は各言語の件数一致です。「翻訳しました」ではありません。</dd></div>
-      <div class="row"><dt>保守ログ<span class="meta">コミットまで辿れる</span></dt><dd>何をなぜ変えたかを一箇所に。各項目はコミットまで辿れます。</dd></div>
-      <div class="row"><dt>障害の振り返り<span class="meta">判定の穴</span></dt><dd>時系列・根本原因・そして「どの判定が黙っていたか」。補った所まで書きます。</dd></div>
+      <details class="row"><summary><span class="rt">依存関係の更新</span><span class="meta">ビルド + テスト</span><span class="mk" aria-hidden="true"></span><span class="rd">バージョン・ハッシュ・ビルド・テスト。失敗も記録します。成功だけを報告しません。</span></summary><div class="rb">証拠：版とハッシュの対照、ビルドログ、テスト出力。失敗した回も残します。</div></details>
+      <details class="row"><summary><span class="rt">判定基準と CI</span><span class="meta">反証つき</span><span class="mk" aria-hidden="true"></span><span class="rd">踏んだ穴は<strong>反転できる</strong>検査にします。「悪い入力で落ちる」反証つきで納品します。</span></summary><div class="rb">証拠：判定スクリプト本体と、悪い入力で落ちる反証。緑と赤の両方の出力を付けます。</div></details>
+      <details class="row"><summary><span class="rt">多言語ドキュメント同期</span><span class="meta">件数の一致</span><span class="mk" aria-hidden="true"></span><span class="rd">判定は各言語の件数一致です。「翻訳しました」ではありません。</span></summary><div class="rb">証拠：言語ごとの件数とリンク検査。不一致なら何件差かをそのまま報告します。</div></details>
+      <details class="row"><summary><span class="rt">保守ログ</span><span class="meta">コミットまで辿れる</span><span class="mk" aria-hidden="true"></span><span class="rd">何をなぜ変えたかを一箇所に。各項目はコミットまで辿れます。</span></summary><div class="rb">証拠：コミット ID・変更概要・その理由。各項目からそのコミットへ戻れます。</div></details>
+      <details class="row"><summary><span class="rt">障害の振り返り</span><span class="meta">判定の穴</span><span class="mk" aria-hidden="true"></span><span class="rd">時系列・根本原因・そして「どの判定が黙っていたか」。補った所まで書きます。</span></summary><div class="rb">証拠：時系列・根本原因・黙っていた判定・そして新たに足した判定。</div></details>
     </dl>
   </div>
 
@@ -329,7 +351,7 @@
 <footer><div class="foot">
   <ul class="chips">
     <li data-i18n><span lang="zh-CN">源码即本页</span><span lang="en">Source is this page</span><span lang="ja">ソースはこのページ</span></li>
-    <li data-i18n><span lang="zh-CN">判据 47 条可跑</span><span lang="en">47 runnable checks</span><span lang="ja">判定 47 項目が実行可能</span></li>
+    <li data-i18n><span lang="zh-CN">判据 53 条可跑</span><span lang="en">53 runnable checks</span><span lang="ja">判定 53 項目が実行可能</span></li>
     <li data-i18n><span lang="zh-CN"><kbd>Tab</kbd> 可达全部控件</span><span lang="en"><kbd>Tab</kbd> reaches every control</span><span lang="ja"><kbd>Tab</kbd> で全操作に到達</span></li>
     <li data-i18n><span lang="zh-CN">最后更新 <time datetime="2026-10-06">2026-10-06</time></span><span lang="en">Last updated <time datetime="2026-10-06">2026-10-06</time></span><span lang="ja">最終更新 <time datetime="2026-10-06">2026-10-06</time></span></li>
   </ul>

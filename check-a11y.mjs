@@ -249,6 +249,11 @@ check("禁 JS 仍返回 200 且有正文（中文块可见）",
   `HTTP ${resp.status()} / ${text} 字 / 关键句=${zhText.includes("不让「看起来通过」发生")}`);
 const noJsVisible = await p2.evaluate(() => [...document.querySelectorAll("[data-lang-block]")]
   .filter((b) => getComputedStyle(b).display !== "none").map((b) => b.getAttribute("data-lang-block")));
+// 关键一条：**折叠展开是浏览器原生行为**，禁用 JavaScript 之后也照样能用。
+await p2.locator("details.row > summary").first().click();
+const noJsToggled = await p2.evaluate(() => document.querySelector("details.row").open);
+check("禁 JS 也能展开（用的是原生 details，不是脚本）", noJsToggled === true, `open=${noJsToggled}`);
+
 check("禁 JS 时只显示中文（不靠脚本才有内容）",
   noJsVisible.length === 1 && noJsVisible[0] === "zh", JSON.stringify(noJsVisible));
 check("背景图已接入（不是 none）",
@@ -301,6 +306,72 @@ check("每个可见文字元素都有不透明背衬（不直接坐在背景图�
 // 页面上写着「判据 N 条」——那句话本身就是一个**可以被验证的断言**，
 // 所以它必须能被验证。加判据而忘了改页面，这条会红。
 // （+1 是这条判据自己：它在 push 之前读 results.length。）
+// ── 折叠展开：必须是**原生** details，而且不许依赖 JavaScript ─────────────────
+// 「点开能看」要验三层：① 结构在且有内容；② 不靠 JS；③ 开合状态不靠颜色。
+const detailsAudit = await page.evaluate(async () => {
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const all = [...document.querySelectorAll("details.row")];
+  // 用 textContent，不用 innerText：**折叠着的内容本来就不渲染**，innerText 会漏掉它。
+  const withBody = all.filter((d) => (d.querySelector(".rb")?.textContent || "").trim().length > 15).length;
+  // 再验「展开后真的看得见、收起后真的不占位」——光有文字而展开是空的，也不合格。
+  // （要等一帧：改 open 之后同帧量，布局还没刷新——第一版就是这么量出 false 的。）
+  const d0 = all[0], body = d0.querySelector(".rb");
+  d0.open = true; await frame();
+  const visibleWhenOpen = body.getBoundingClientRect().height > 4;
+  d0.open = false; await frame();
+  const hiddenWhenClosed = body.getBoundingClientRect().height === 0;
+  return { n: all.length, withBody, closed: all.filter((d) => !d.open).length,
+           visibleWhenOpen, hiddenWhenClosed };
+});
+check("默认是折叠状态（条目多时页面更短，放大看的人少滚几屏）", detailsAudit.closed === detailsAudit.n,
+  `展开着 ${detailsAudit.n - detailsAudit.closed} 条`);
+
+// 开合记号：折叠时＋、展开时－。**形状变化，不是颜色变化。**
+const marker = await page.evaluate(() => {
+  const d = document.querySelector("details.row");
+  const read = () => getComputedStyle(d.querySelector(".mk"), "::after").content;
+  const before = read(); d.open = true; const after = read(); d.open = false;
+  return { before, after };
+});
+check("开合记号在两种状态下不同（不靠颜色）",
+  marker.before !== marker.after && /＋|\+/.test(marker.before) && /−|-/.test(marker.after),
+  JSON.stringify(marker));
+
+// 键盘：聚焦 summary 按 Enter / Space 应能开合
+const kb = await page.evaluate(() => document.querySelector("details.row").open);
+await page.locator("details.row > summary").first().focus();
+await page.keyboard.press("Enter");
+const afterEnter = await page.evaluate(() => document.querySelector("details.row").open);
+await page.keyboard.press("Space");
+const afterSpace = await page.evaluate(() => document.querySelector("details.row").open);
+check("键盘可达：Enter 与 Space 都能开合", afterEnter === !kb && afterSpace === kb,
+  `初始 ${kb} → Enter ${afterEnter} → Space ${afterSpace}`);
+
+// 展开态下，背衬与对比度同样要成立（内容变高了，位置全变）
+await page.evaluate(() => document.querySelectorAll("details.row").forEach((d) => { d.open = true; }));
+const backlessOpen = await page.evaluate(() => {
+  const opaque = (el) => {
+    const cs = getComputedStyle(el);
+    if (cs.backgroundImage !== "none") return false;
+    const m = cs.backgroundColor.match(/[\d.]+/g) || [];
+    if (m.length < 3) return false;
+    return (m.length >= 4 ? Number(m[3]) : 1) >= 0.9;
+  };
+  const out = [];
+  for (const el of document.querySelectorAll("h1, p, li, dt, dd, a, label, kbd, code, .num, time, summary, .rb")) {
+    if (el.offsetParent === null) continue;
+    let n = el, ok = false;
+    while (n && n !== document.documentElement) { if (opaque(n)) { ok = true; break; } n = n.parentElement; }
+    if (!ok) out.push(`${el.tagName}.${el.className} :: ${el.innerText.slice(0, 20)}`);
+  }
+  return out;
+});
+check("展开态：每个可见文字元素仍有不透明背衬", backlessOpen.length === 0,
+  JSON.stringify(backlessOpen.slice(0, 3)));
+const rOpen = await renderedContrast(page, "details.row[open] .rb");
+check("展开态：折叠内容与其背景 ≥ 4.5:1", rOpen.ratio >= 4.5, JSON.stringify(rOpen));
+await page.evaluate(() => document.querySelectorAll("details.row").forEach((d) => { d.open = false; }));
+
 const claimed = await page.evaluate(() => {
   const found = new Set();
   for (const m of document.body.textContent.matchAll(/判据\s*(\d+)\s*条|(\d+)\s*accessibility checks|判定\s*(\d+)\s*項目/g))
