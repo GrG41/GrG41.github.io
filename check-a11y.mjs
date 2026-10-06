@@ -36,9 +36,14 @@ const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbo
 // （背景像素占多数），再跟该元素的文字颜色算对比度。
 async function renderedContrast(pg, selector) {
   const el = pg.locator(selector).first();
+  await el.scrollIntoViewIfNeeded();                 // 不先滚动的话，元素在视口外 → clip 越界报错
   const box = await el.boundingBox();
   if (box === null) return { err: "找不到元素 " + selector };
-  const clip = { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height };
+  const vp = pg.viewportSize();
+  const x = Math.max(0, Math.min(box.x, vp.width - 2));
+  const y = Math.max(0, Math.min(box.y, vp.height - 2));   // 裁进视口，别越界
+  const clip = { x, y, width: Math.max(2, Math.min(box.width, vp.width - x)),
+                 height: Math.max(2, Math.min(box.height, vp.height - y)) };
   const buf = await pg.screenshot({ clip });
   const src = "data:image/png;base64," + buf.toString("base64");
   const fg = await el.evaluate((n) => getComputedStyle(n).color);
@@ -164,6 +169,11 @@ for (const [loc, lang, expect] of [["en-US", "en", "High contrast"],
   await p5.goto(URL, { waitUntil: "load" });
   const got = await p5.evaluate(() => document.querySelector("label[for=hc]").innerText.replace(/\s+/g, " ").trim());
   check(`${lang} 页面：开关文案是「${expect}」`, got === expect, JSON.stringify(got));
+  // 页脚在语言块之外，最容易漏译——单独验：只允许该语言的文字，别的语言字符一个都不许有。
+  const footTxt = await p5.evaluate(() => document.querySelector("footer .foot").innerText.replace(/\s+/g, " ").trim());
+  const other = lang === "en" ? /[\u3040-\u30ff\u4e00-\u9fff]/
+    : lang === "ja" ? /[\uac00-\ud7af]/ : /[\u3040-\u30ff]/;
+  check(`${lang} 页面：页脚不混其他语言`, !other.test(footTxt) && footTxt.length > 10, JSON.stringify(footTxt.slice(0, 60)));
   await c3.close();
 }
 
@@ -263,39 +273,43 @@ for (const [sel, min, label] of SEL) {
 }
 await wide.close();
 
-// ── 全局扫描：整页任何**没有文字**的地方，背景都不许亮到威胁正文 ─────────────
-// 为什么需要：上面那些判据只看文字**当前**所在的位置。而背景图是 `cover + fixed`，
-// 会随窗口大小漂移——今天没压在字上，不代表换个窗口不会。所以反过来扫：
-// 一次整页截图 → 按 12px 条带算每带的 p90 → **跳过与文字元素相交的带** →
-// 剩下里最亮的那条，就是「文字可能压到的最亮背景」。
-// 阈值 0.078：与最亮文字（#e8eef5，亮度 0.849）相比刚好 7:1。
-const boxes = await page.evaluate(() => [...document.querySelectorAll("h1, p, li, dt, dd, a, label, code, .num")]
-  .filter((el) => el.offsetParent !== null)
-  .map((el) => { const r = el.getBoundingClientRect();
-    return { t: r.top + window.scrollY, b: r.bottom + window.scrollY }; }));
-const fullBuf = await page.screenshot({ fullPage: true });
-const scan = await page.evaluate(async ({ src, boxes }) => {
-  const img = new Image(); img.src = src; await img.decode();
-  const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
-  const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0);
-  const d = cx.getImageData(0, 0, cv.width, cv.height).data;
-  const lum = (r, g, b) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
-  const band = 12; let worst = { p90: 0, y: -1 }, scanned = 0;
-  for (let y0 = 0; y0 + band <= cv.height; y0 += band) {
-    if (boxes.some((b) => y0 + band > b.t - 4 && y0 < b.b + 4)) continue;   // 与文字相交 → 跳过
-    const ls = [];
-    for (let y = y0; y < y0 + band; y++) for (let x = 0; x < cv.width; x += 2) {
-      const i = (y * cv.width + x) * 4; ls.push(lum(d[i], d[i + 1], d[i + 2])); }
-    ls.sort((p, q) => p - q);
-    scanned++;
-    const p90 = ls[Math.floor(ls.length * 0.9)];
-    if (p90 > worst.p90) worst = { p90: +p90.toFixed(3), y: y0 };
+// ── 背衬不变量：每个可见文字元素都必须坐在**不透明**的表面上 ──────────────────
+// 设计改了：文字全部进面板，图只从缝隙里透出来。于是「文字 vs 背景」这件事
+// 从「量亮度」变成了「查结构」——比量亮度结实：它不随窗口大小漂。
+// 注意 `body` 自己有 background-image，所以**不算**合格背衬（这正是要点）。
+const backless = await page.evaluate(() => {
+  const opaque = (el) => {
+    const cs = getComputedStyle(el);
+    if (cs.backgroundImage !== "none") return false;             // 有图 → 不算背衬
+    const m = cs.backgroundColor.match(/[\d.]+/g) || [];
+    if (m.length < 3) return false;
+    return (m.length >= 4 ? Number(m[3]) : 1) >= 0.9;            // 要求基本不透
+  };
+  const out = [];
+  for (const el of document.querySelectorAll("h1, p, li, dt, dd, a, label, kbd, code, .num, time")) {
+    if (el.offsetParent === null) continue;
+    let n = el, ok = false;
+    while (n && n !== document.documentElement) { if (opaque(n)) { ok = true; break; } n = n.parentElement; }
+    if (!ok) out.push(`${el.tagName}.${el.className} :: ${el.innerText.slice(0, 20)}`);
   }
-  return { ...worst, scanned, height: cv.height };
-}, { src: "data:image/png;base64," + fullBuf.toString("base64"), boxes });
-check(`全局扫描：无文字处的背景 p90 ≤ 0.078（= 与最亮文字 7:1；扫了 ${scan.scanned} 条带）`,
-  scan.p90 <= 0.078, `最亮条带 y=${scan.y} p90=${scan.p90}`);
+  return out;
+});
+check("每个可见文字元素都有不透明背衬（不直接坐在背景图上）",
+  backless.length === 0, JSON.stringify(backless.slice(0, 3)));
+
+// ── 自洽：页面上写的判据条数 == 实际条数（三语必须一致）──────────────────────
+// 页面上写着「判据 N 条」——那句话本身就是一个**可以被验证的断言**，
+// 所以它必须能被验证。加判据而忘了改页面，这条会红。
+// （+1 是这条判据自己：它在 push 之前读 results.length。）
+const claimed = await page.evaluate(() => {
+  const found = new Set();
+  for (const m of document.body.textContent.matchAll(/判据\s*(\d+)\s*条|(\d+)\s*accessibility checks|判定\s*(\d+)\s*項目/g))
+    found.add(Number(m[1] || m[2] || m[3]));
+  return [...found];
+});
+check("页面上写的判据条数（三语一致）== 实际条数",
+  claimed.length === 1 && claimed[0] === results.length + 1,
+  `页面写 ${JSON.stringify(claimed)}，实际 ${results.length + 1}`);
 
 await browser.close();
 
