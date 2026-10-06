@@ -2,6 +2,12 @@
 // 声称必须能被机器核对，否则它只是一句营销词。
 //
 // 跑法：node check-a11y.mjs [url]
+//
+// **已知边界（2026-10-06 实测）**：这套检查量的是布局、字号、对比度、语义、无 JS——
+// **不量字形覆盖**。本机 chromium 默认没有中文字体，截图会全是豆腐块（□）而所有判据照样绿。
+// 要截图给人看，先给 fontconfig 配 CJK 字体：
+//   FONTCONFIG_FILE=<指向 noto-fonts-cjk 的 conf> node shot.mjs
+// （同族：2026-09-24 typst 那次「编译成功但中文全 fallback」。）
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const pw = require(process.env.AB_PLAYWRIGHT || "/home/kix/reclip/node_modules/playwright/index.js");
