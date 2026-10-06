@@ -416,6 +416,31 @@ const drawerBackless = await page.evaluate(() => {
 check("抽屉里的文字也有不透明背衬", drawerBackless.length === 0, JSON.stringify(drawerBackless.slice(0, 3)));
 await page.keyboard.press("Escape");
 
+// ── 面板头的计数必须等于该节**实际**的条目数 ─────────────────────────────────
+// 参考图里那个「希斯研究 7/23」是真实进度。我照抄了形式，就得照抄这个要求：
+// 写「5 项」就得真有 5 条——否则那是装饰，不是计数。
+const counterAudit = await page.evaluate(() => {
+  const out = [];
+  for (const h2 of document.querySelectorAll("main > h2[id]")) {
+    if (h2.offsetParent === null) continue;                    // 只看当前语言
+    const meta = h2.querySelector(".hmeta");
+    if (!meta) continue;
+    const want = Number((meta.textContent.match(/\d+/) || [])[0]);
+    const panel = h2.nextElementSibling;
+    if (!panel) { out.push({ id: h2.id, want, got: -1, why: "没有面板" }); continue; }
+    const got = panel.querySelectorAll(":scope > details.row, :scope > .rows > .row, :scope > details").length;
+    if (want !== got) out.push({ id: h2.id, want, got });
+  }
+  return out;
+});
+check("各节声明的条目数 == 该节实际条目数", counterAudit.length === 0, JSON.stringify(counterAudit));
+
+// 反白（展开）那一行的对比度：反白块正是对比度最容易出错的地方
+await page.evaluate(() => { document.querySelector("details.row").open = true; });
+const inv = await renderedContrast(page, "details.row[open] > summary .rt");
+check("展开行反白后的文字对比度 ≥ 7:1", inv.ratio >= 7, JSON.stringify(inv));
+await page.evaluate(() => { document.querySelector("details.row").open = false; });
+
 // ── 自洽：页面上写的判据条数 == 实际条数（三语必须一致）──────────────────────
 // 页面上写着「判据 N 条」——那句话本身就是一个**可以被验证的断言**，
 // 所以它必须能被验证。加判据而忘了改页面，这条会红。
