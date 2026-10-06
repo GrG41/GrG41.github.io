@@ -200,6 +200,8 @@ const still = await page.evaluate(() => {
   d.open = false; return r; });
 check("减少动效时无过渡", /^(0s,?\s*)+$/.test(still.transition), still.transition);
 check("减少动效时无动画", still.anim === "none" && still.markerAnim === "none", JSON.stringify(still));
+const drawerMotion = await page.evaluate(() => getComputedStyle(document.getElementById("toc")).transitionDuration);
+check("减少动效时抽屉无过渡", /^(0s,?\s*)+$/.test(drawerMotion), drawerMotion);
 // **这条是重点**：动效关掉之后，内容不许跟着消失（透明度得是 1、高度得是真的）。
 check("减少动效时折叠内容仍然可见（动效不是内容的前提）",
   Number(still.rbOpacity) === 1 && still.rbHeight > 4, JSON.stringify(still));
@@ -275,6 +277,12 @@ check("禁 JS 仍返回 200 且有正文（中文块可见）",
   `HTTP ${resp.status()} / ${text} 字 / 关键句=${zhText.includes("不让「看起来通过」发生")}`);
 const noJsVisible = await p2.evaluate(() => [...document.querySelectorAll("[data-lang-block]")]
   .filter((b) => getComputedStyle(b).display !== "none").map((b) => b.getAttribute("data-lang-block")));
+// 抽屉同样不许靠脚本：Popover 是浏览器原生行为。
+await p2.locator("button.menubtn").click();
+const noJsDrawer = await p2.evaluate(() => document.getElementById("toc").matches(":popover-open"));
+check("禁 JS 也能打开目录抽屉（原生 popover）", noJsDrawer === true, `open=${noJsDrawer}`);
+await p2.keyboard.press("Escape");
+
 // 关键一条：**折叠展开是浏览器原生行为**，禁用 JavaScript 之后也照样能用。
 await p2.locator("details.row > summary").first().click();
 const noJsToggled = await p2.evaluate(() => document.querySelector("details.row").open);
@@ -327,6 +335,86 @@ const backless = await page.evaluate(() => {
 });
 check("每个可见文字元素都有不透明背衬（不直接坐在背景图上）",
   backless.length === 0, JSON.stringify(backless.slice(0, 3)));
+
+// ── 目录抽屉：用 Popover API，开合是浏览器原生行为 ───────────────────────────
+// 「汉堡菜单」最容易做坏的地方：焦点管理、Esc、遮住内容。用原生 popover 就不必自己扛。
+const drawerAudit = await page.evaluate(() => {
+  const toc = document.getElementById("toc");
+  const btn = document.querySelector("button.menubtn");
+  return { hasToc: !!toc, hasBtn: !!btn,
+           isPopover: toc ? toc.hasAttribute("popover") : false,
+           links: toc ? toc.querySelectorAll("a[href^='#']").length : 0 };
+});
+check("目录抽屉存在，且开关走 Popover API（不自己写）",
+  drawerAudit.hasToc && drawerAudit.hasBtn && drawerAudit.isPopover, JSON.stringify(drawerAudit));
+
+// 目录链接必须都指向**存在**的 id（当前语言下）——断链是这种菜单最常见的坏法。
+// 注意：要先**打开**抽屉，否则所有链接的 offsetParent 都是 null（关着的东西不渲染），
+// 第一版就是这么数出「可见链接 0 条」的。
+await page.locator("button.menubtn").click();
+const anchorAudit = await page.evaluate(() => {
+  const bad = [];
+  for (const a of document.querySelectorAll("#toc a[href^='#']")) {
+    if (a.offsetParent === null) continue;               // 只看当前语言那一组
+    const id = a.getAttribute("href").slice(1);
+    if (document.getElementById(id) === null) bad.push(id);
+  }
+  const ids = [...document.querySelectorAll("[id]")].map((e) => e.id);
+  const dup = ids.filter((x, i) => ids.indexOf(x) !== i);
+  return { bad, dup, visible: [...document.querySelectorAll("#toc a[href^='#']")].filter((a) => a.offsetParent !== null).length };
+});
+check("目录链接都指向存在的锚点", anchorAudit.bad.length === 0 && anchorAudit.visible === 5,
+  JSON.stringify(anchorAudit));
+check("文档内 id 不重复（三语各一套锚点）", anchorAudit.dup.length === 0, JSON.stringify(anchorAudit.dup));
+await page.keyboard.press("Escape");
+
+// 开合：点按钮 → 开；按 Esc → 关；焦点该进去也该回来。
+// 注意：抽屉里的「关闭」按钮也是 popovertarget="toc" —— 选择器要指名第一个（菜单按钮）。
+const opener = page.locator("button.menubtn");
+await opener.click();
+const opened = await page.evaluate(() => {
+  const toc = document.getElementById("toc");
+  const invoker = document.querySelector("button.menubtn");
+  return { open: toc.matches(":popover-open"),
+           focusKept: document.activeElement === invoker || toc.contains(document.activeElement) };
+});
+check("点按钮能打开抽屉", opened.open, JSON.stringify(opened));
+// 原生 popover **不移动焦点**（只有 autofocus 或模态对话框才会）。所以这里验的是
+// 「焦点没丢」+「Tab 一步能进抽屉」——比「焦点自动进去」更贴近真实行为，也更可测。
+check("打开后焦点没丢（在按钮上或在抽屉里）", opened.focusKept, JSON.stringify(opened));
+await page.keyboard.press("Tab");
+const tabbedIn = await page.evaluate(() => document.getElementById("toc").contains(document.activeElement));
+check("打开后按一次 Tab 就能进入抽屉", tabbedIn);
+await page.keyboard.press("Escape");
+await page.keyboard.press("Escape");
+const closed = await page.evaluate(() => {
+  const toc = document.getElementById("toc");
+  return { open: toc.matches(":popover-open"),
+           focusBack: document.activeElement === document.querySelector("button.menubtn") };
+});
+check("Esc 能关闭抽屉，且焦点回到按钮", !closed.open && closed.focusBack, JSON.stringify(closed));
+
+// 打开状态下，抽屉里的文字同样要满足背衬不变量
+await page.locator("button.menubtn").click();
+const drawerBackless = await page.evaluate(() => {
+  const opaque = (el) => {
+    const cs = getComputedStyle(el);
+    if (cs.backgroundImage !== "none") return false;
+    const m = cs.backgroundColor.match(/[\d.]+/g) || [];
+    if (m.length < 3) return false;
+    return (m.length >= 4 ? Number(m[3]) : 1) >= 0.9;
+  };
+  const out = [];
+  for (const el of document.querySelectorAll("#toc a, #toc strong, #toc button")) {
+    if (el.offsetParent === null) continue;
+    let n = el, ok = false;
+    while (n && n !== document.documentElement) { if (opaque(n)) { ok = true; break; } n = n.parentElement; }
+    if (!ok) out.push(`${el.tagName} :: ${el.innerText.slice(0, 16)}`);
+  }
+  return out;
+});
+check("抽屉里的文字也有不透明背衬", drawerBackless.length === 0, JSON.stringify(drawerBackless.slice(0, 3)));
+await page.keyboard.press("Escape");
 
 // ── 自洽：页面上写的判据条数 == 实际条数（三语必须一致）──────────────────────
 // 页面上写着「判据 N 条」——那句话本身就是一个**可以被验证的断言**，
