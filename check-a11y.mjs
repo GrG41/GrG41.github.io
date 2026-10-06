@@ -157,6 +157,22 @@ const tabDiff = await page.evaluate(() => {
 check("当前语言：填充亮度差 ≥ 0.5（不靠色相）",
   Math.abs(tabDiff.on - tabDiff.off) >= 0.5, JSON.stringify(tabDiff));
 
+// ── 顶栏不许有**多余的文字**（这一条是被一张截图抓出来的：我删亮色开关时正则非贪婪，
+//     把 label 的英文/日文两半留在了顶栏上，而当时 30 条判据全绿——它们只查了控件在不在。
+//     所以这里改成**枚举**：顶栏里可交互元素的数量与文案必须正好是期望的那几个。）
+const barAudit = await page.evaluate(() => {
+  const bar = document.querySelector(".bar");
+  const links = [...bar.querySelectorAll("nav a")].map((a) => a.innerText.trim());
+  const labels = [...bar.querySelectorAll("label")].map((l) => l.innerText.replace(/\s+/g, " ").trim());
+  const boxes = bar.querySelectorAll('input[type="checkbox"]').length;
+  return { links, labels, boxes, all: bar.innerText.replace(/\s+/g, " ").trim() };
+});
+check("顶栏：语言项正好三个", barAudit.links.length === 3, JSON.stringify(barAudit.links));
+check("顶栏：开关正好一个（高对比度）", barAudit.boxes === 1 && barAudit.labels.length === 1,
+  JSON.stringify({ boxes: barAudit.boxes, labels: barAudit.labels }));
+check("顶栏：没有多余的残留文字（如删掉的亮色开关）",
+  !/Light|ライト|亮色/i.test(barAudit.all), JSON.stringify(barAudit.all));
+
 await page.check("#hc");
 const hcTab = await page.evaluate(() => {
   const L = (c) => { const v = (c.match(/\d+/g) || []).slice(0, 3).map(Number)
