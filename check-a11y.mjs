@@ -126,18 +126,12 @@ for (const [loc, lang, expect] of [["en-US", "en", "High contrast"],
   await p5.goto(URL, { waitUntil: "load" });
   const got = await p5.evaluate(() => document.querySelector("label[for=hc]").innerText.replace(/\s+/g, " ").trim());
   check(`${lang} 页面：开关文案是「${expect}」`, got === expect, JSON.stringify(got));
-  // 那句「你的系统偏好亮色」的提示也必须跟着语言走，否则英文访客会读到一句中文。
-  const hint = await p5.evaluate(() => document.querySelector("p.hint").innerText.replace(/\s+/g, " ").trim());
-  const hintOk = lang === "en" ? (hint.includes("dark by default") && !/[\u3040-\u30ff]/.test(hint))
-    : lang === "ja" ? hint.includes("既定で暗色")
-    : hint.includes("默认暗色");
-  check(`${lang} 页面：亮色提示也是该语言`, hintOk, JSON.stringify(hint));
   await c3.close();
 }
 
 // ── 次要文字也不能糊（美化最容易牺牲的就是它）────────────────────────────────
 const mutedCr = await page.evaluate(() => {
-  const el = document.querySelector("p.hint") || document.querySelector(".muted");
+  const el = document.querySelector("header.hero .muted") || document.body;
   const cs = getComputedStyle(el);
   const parse = (s) => (s.match(/\d+/g) || []).slice(0, 3).map(Number);
   return { fg: parse(cs.color), bg: parse(getComputedStyle(document.body).backgroundColor) }; });
@@ -151,22 +145,34 @@ await page.emulateMedia({ reducedMotion: "no-preference" });
 
 check("有站点图标（favicon）", await page.evaluate(() => !!document.querySelector('link[rel="icon"]')));
 
-// ── 亮色是**开关**，不是跟随系统；偏好亮色的人会看到一句提示 ─────────────────
-await page.emulateMedia({ colorScheme: "light" });
-const hint = await page.evaluate(() => getComputedStyle(document.querySelector("p.hint")).display);
-check("系统偏好亮色时给出提示（而不是偷偷换色）", hint !== "none", `display=${hint}`);
-check("系统偏好亮色时页面**仍然是暗的**（默认不变）",
-  await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme).then((v) => v.includes("dark")));
-await page.emulateMedia({ colorScheme: "no-preference" });
-const lt = await page.$("input#lt");
-if (lt === null) check("存在亮色开关", false, "找不到 input#lt");
-else {
-  await lt.check();
-  c = await colorsOf(page);
-  const crLt = ratio(parseRgb(c.fg), parseRgb(c.bg));
-  check("亮色开关打开 → 对比度 ≥ 7:1", crLt >= 7, crLt.toFixed(2) + ":1");
-  await lt.uncheck();
-}
+// ── 当前项靠「填充」区分，不靠色相（参考图的关键手法，也应该是能量的）────────
+const tabDiff = await page.evaluate(() => {
+  const L = (c) => { const v = (c.match(/\d+/g) || []).slice(0, 3).map(Number)
+      .map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+  const on = document.querySelector('.lang a[aria-current="true"]');
+  const off = document.querySelector('.lang a[aria-current="false"]');
+  return { on: L(getComputedStyle(on).backgroundColor), off: L(getComputedStyle(off).backgroundColor) };
+});
+check("当前语言：填充亮度差 ≥ 0.5（不靠色相）",
+  Math.abs(tabDiff.on - tabDiff.off) >= 0.5, JSON.stringify(tabDiff));
+
+await page.check("#hc");
+const hcTab = await page.evaluate(() => {
+  const L = (c) => { const v = (c.match(/\d+/g) || []).slice(0, 3).map(Number)
+      .map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+  const lab = document.querySelector('label[for="hc"]');
+  return { bg: L(getComputedStyle(lab).backgroundColor), fg: L(getComputedStyle(lab).color) };
+});
+check("高对比度开关：打开后同样用填充区分", hcTab.bg > hcTab.fg, JSON.stringify(hcTab));
+await page.uncheck("#hc");
+
+// ── 这一页只提供暗色（2026-10-06 起去掉亮色开关：少一个分支就少一处会坏的地方）──
+check("页面上不再有亮色开关", (await page.$("input#lt")) === null && (await page.$("label[for=lt]")) === null);
+check("color-scheme 只声明 dark（不再声称支持亮色）",
+  (decl.meta ?? "").trim() === "dark" && /dark/.test(decl.css ?? "") && !/light/.test(decl.css ?? ""),
+  `meta=${decl.meta} css=${decl.css}`);
 
 // ── 无 JavaScript ───────────────────────────────────────────────────────────
 const noJs = await browser.newContext({ javaScriptEnabled: false });
