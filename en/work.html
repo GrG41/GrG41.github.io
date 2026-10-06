@@ -43,6 +43,7 @@
   /* 注意：这里不能有 backdrop-filter —— 它会成为 fixed 后代的包含块，抽屉的定位会跟着歪。
      顶栏改为不透明，也顺便把文字对比度钉死。 */
   .bar { position: sticky; top:0; z-index:2; background:var(--glass); backdrop-filter:blur(14px) saturate(1.2); border-bottom:1px solid var(--line); }
+  /* 左侧留出固定菜单按钮的位置；顶栏现在只有品牌 + 高对比度开关。 */
   .bar-in { max-width:62ch; margin:0 auto; padding:.6rem 1.25rem .6rem 4.6rem;
     display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; }
   .brand { font-weight:700; letter-spacing:.06em; margin-right:auto; text-transform:none; }
@@ -178,7 +179,7 @@
      全部只在「不要求减少动效」时生效。**动效不许成为内容看不见的理由**——
      这一点由判据守：减少动效时，折叠内容照样必须可见（且透明度为 1）。 */
   @media (prefers-reduced-motion: no-preference) {
-    .lang a, .toggle label, .chips li, details.row > summary, h2, .mk, header.hero, .panel {
+    .drawer-lang a, .toggle label, .chips li, details.row > summary, h2, .mk, header.hero, .panel {
       transition: background-color .16s ease, border-color .16s ease,
                   color .16s ease, transform .16s ease, box-shadow .16s ease;
     }
@@ -187,8 +188,8 @@
     details.row > summary:focus-visible::before,
     details.row[open] > summary::before { transform:scaleY(1); }
     .chips li:hover { transform:translateY(-1px); border-color:var(--accent); color:var(--fg); }
-    .lang a:hover, .toggle label:hover { transform:translateY(-1px); }
-    .lang a:active, .toggle label:active, details.row > summary:active { transform:translateY(0); }
+    .drawer-lang a:hover, .toggle label:hover { transform:translateY(-1px); }
+    .drawer-lang a:active, .toggle label:active, details.row > summary:active { transform:translateY(0); }
     header.hero { box-shadow:0 1px 0 0 var(--line), 0 14px 40px -28px rgba(0,0,0,.9); }
     header.hero:hover { border-color:color-mix(in oklab, var(--accent) 45%, var(--line)); }
     .mk { display:inline-block; }
@@ -288,11 +289,8 @@
   <div class="bar">
     <div class="bar-in">
       <p class="brand">小爪 <span>キツのめ</span></p>
-      <nav class="lang" aria-label="Language">
-        <a href="/work.html" data-lang-link="zh" hreflang="zh-CN">中文</a>
-        <a href="/en/work.html" data-lang-link="en" hreflang="en" aria-current="true">English</a>
-        <a href="/ja/work.html" data-lang-link="ja" hreflang="ja">日本語</a>
-      </nav>
+      <!-- 语言切换只在抽屉里一处（顶栏这份是重复的，2026-10-06 按狐莉的要求去掉）——
+           同一控件出现两处，改文案时必然漏一处。 -->
       <span class="toggles">
         <span class="toggle"><input type="checkbox" id="hc"><label for="hc">High contrast</label></span>
       </span>
@@ -338,7 +336,7 @@
     <footer><div class="foot">
       <ul class="chips">
     <li>Source is this page</li>
-    <li>41 runnable checks</li>
+    <li>42 runnable checks</li>
     <li><kbd>Tab</kbd> reaches every control</li>
     <li>Last updated <time datetime="2026-10-06">2026-10-06</time></li>
       </ul>

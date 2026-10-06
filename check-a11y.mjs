@@ -253,11 +253,19 @@ await page.keyboard.press("Escape");
 // ── 站内链接：必须是**真链接**且都指向存在的文件 ─────────────────────────────
 const links = await page.evaluate(() => ({
   nav: [...document.querySelectorAll(".drawer-panel ul a")].map((a) => ({ href: a.getAttribute("href"), cur: a.getAttribute("aria-current") })),
-  lang: [...document.querySelectorAll(".bar .lang a")].map((a) => ({ href: a.getAttribute("href"), cur: a.getAttribute("aria-current"), lang: a.getAttribute("hreflang") })),
+  lang: [...document.querySelectorAll(".drawer-lang a")].map((a) => ({ href: a.getAttribute("href"), cur: a.getAttribute("aria-current"), lang: a.getAttribute("hreflang") })),
 }));
+const barAudit = await page.evaluate(() => {
+  const bar = document.querySelector(".bar");
+  return { langLinks: bar.querySelectorAll("nav.lang a, a[hreflang]").length,
+           toggles: bar.querySelectorAll('input[type="checkbox"]').length,
+           text: bar.innerText.replace(/\s+/g, " ").trim() };
+});
+check("顶栏只有高对比度开关，没有语言切换器（语言只在抽屉里一处）",
+  barAudit.langLinks === 0 && barAudit.toggles === 1, JSON.stringify(barAudit));
 check("抽屉内正好三个页面链接，且当前页恰好标一个 aria-current",
   links.nav.length === 3 && links.nav.filter((l) => l.cur === "page").length === 1, JSON.stringify(links.nav));
-check("顶栏语言是真链接（三个），当前语言标 aria-current",
+check("抽屉里的语言切换是真链接（三个），当前语言标 aria-current",
   links.lang.length === 3 && links.lang.filter((l) => l.cur === "true").length === 1, JSON.stringify(links.lang));
 if (LOCAL) {
   const missing = [];
@@ -300,7 +308,7 @@ check("各节声明的条目数 == 该节实际条目数", counter.length === 0,
 // ── 减少动效 / 允许动效 ──────────────────────────────────────────────────────
 await page.emulateMedia({ reducedMotion: "reduce" });
 const still = await page.evaluate(() => {
-  const a = document.querySelector(".lang a"), rb = document.querySelector("details.row .rb");
+  const a = document.querySelector(".drawer-lang a"), rb = document.querySelector("details.row .rb");
   const cs = rb ? getComputedStyle(rb) : null;
   return { transition: getComputedStyle(a).transitionDuration, anim: getComputedStyle(a).animationName,
            siteTransition: getComputedStyle(document.querySelector(".site")).transitionDuration,
@@ -313,7 +321,7 @@ await page.emulateMedia({ reducedMotion: "no-preference" });
 const motion = await page.evaluate(() => {
   const nz = (v) => v.split(",").some((x) => parseFloat(x) > 0);
   return { site: nz(getComputedStyle(document.querySelector(".site")).transitionDuration),
-           tab: nz(getComputedStyle(document.querySelector(".lang a")).transitionDuration) };
+           tab: nz(getComputedStyle(document.querySelector(".drawer-lang a")).transitionDuration) };
 });
 check("允许动效时抽屉与页签都有过渡（动效真的存在）", motion.site && motion.tab, JSON.stringify(motion));
 
@@ -333,7 +341,7 @@ const noJsOpen = await p2.evaluate(() => {
 check("禁 JS 也能展开抽屉并把内容让开（原生 details + CSS）",
   noJsOpen.open && (noJsOpen.contentLeft > 100 || noJsOpen.hidden === "hidden"), JSON.stringify(noJsOpen));
 const noJsLang = await p2.evaluate(() => {
-  const as = [...document.querySelectorAll(".bar .lang a")].map((a) => a.getAttribute("href") || "");
+  const as = [...document.querySelectorAll(".drawer-lang a")].map((a) => a.getAttribute("href") || "");
   return { n: as.length, hrefs: as, ok: as.length === 3 && as.every((h) => h.startsWith("/")) };
 });
 check("禁 JS 时语言切换仍可用（链接是真链接）", noJsLang.ok, JSON.stringify(noJsLang));

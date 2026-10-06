@@ -82,9 +82,8 @@ ${alternates}
   <div class="bar">
     <div class="bar-in">
       <p class="brand">小爪 <span>キツのめ</span></p>
-      <nav class="lang" aria-label="${U.lang}">
-        ${langLinks}
-      </nav>
+      <!-- 语言切换只在抽屉里一处（顶栏这份是重复的，2026-10-06 按狐莉的要求去掉）——
+           同一控件出现两处，改文案时必然漏一处。 -->
       <span class="toggles">
         <span class="toggle"><input type="checkbox" id="hc"><label for="hc">${U.hc}</label></span>
       </span>
