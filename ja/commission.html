@@ -18,10 +18,15 @@
   :root { color-scheme: dark;
     --fg:#e8eef5; --bg:#0b0e12; --surface:#14181e; --surface2:#1b2027;
     --muted:#aebac7; --line:#333c48; --accent:#84c5ff; --hl:#e8eef5; --hl-fg:#0b0e12;
-    --r:2px; }
+    --r:2px;
+    /* 毛玻璃：面板半透明 + 背景模糊。透明度不是拍脑袋定的——
+       它决定了正文对比度，由判据（把文字隐藏后量真实背景）守着。 */
+    --glass: color-mix(in oklab, var(--surface) 74%, transparent);
+    --glass2: color-mix(in oklab, var(--surface2) 70%, transparent); }
 
   html { font-size: 21px; }
   body { margin:0; color:var(--fg);
+    /* 图放在 body 上、.site 透明——这样毛玻璃才「有东西可看」。 */
     background-color:var(--bg);
     background-image:url("bg.svg");
     background-size:cover; background-position:center top; background-attachment:fixed;
@@ -37,7 +42,7 @@
   /* 顶栏：品牌 + 语言开关 + 显示开关。粘性只用来让开关随时够得着。 */
   /* 注意：这里不能有 backdrop-filter —— 它会成为 fixed 后代的包含块，抽屉的定位会跟着歪。
      顶栏改为不透明，也顺便把文字对比度钉死。 */
-  .bar { position: sticky; top:0; z-index:2; background:var(--bg); border-bottom:1px solid var(--line); }
+  .bar { position: sticky; top:0; z-index:2; background:var(--glass); backdrop-filter:blur(14px) saturate(1.2); border-bottom:1px solid var(--line); }
   .bar-in { max-width:62ch; margin:0 auto; padding:.6rem 1.25rem .6rem 4.6rem;
     display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; }
   .brand { font-weight:700; letter-spacing:.06em; margin-right:auto; text-transform:none; }
@@ -68,9 +73,8 @@
   .burger { width:14px; height:2px; background:currentColor; border-radius:1px;
     box-shadow:0 -5px 0 currentColor, 0 5px 0 currentColor; display:inline-block; }
   .drawer-panel { position:fixed; inset:0 auto 0 0; width:min(19rem, 84vw); z-index:0;
-    background:var(--surface); border-right:1px solid var(--line); overflow:auto; padding-top:3.1rem; }
-  .site { position:relative; z-index:1; background-color:var(--bg); background-image:url("bg.svg");
-    background-size:cover; background-position:center top; background-attachment:fixed; min-height:100vh; }
+    background:var(--glass); backdrop-filter:blur(16px) saturate(1.15); border-right:1px solid var(--line); overflow:auto; padding-top:3.1rem; }
+  .site { position:relative; z-index:1; background:transparent; min-height:100vh; }
   /* 让开的方式：**让左边距**，不是 transform。transform 不重排，内容会整块被挤出屏幕右边
      （实测展开后顶栏与面板都被切掉）。margin 会重排，所以还看得全。 */
   body:has(.drawer[open]) .site { margin-left:min(19rem, 84vw);
@@ -103,14 +107,14 @@
 
   /* 标题区也坐进面板——参考图里文字都在面板上，图只从缝隙里透出来。
      这样一来背景图就能亮起来：它不再压在字下面。 */
-  header.hero { position:relative; background:var(--surface); border:1px solid var(--line);
+  header.hero { position:relative; background:var(--glass); backdrop-filter:blur(12px) saturate(1.15); border:1px solid var(--line);
     border-radius:var(--r); padding:1.2rem 1.15rem 1.05rem; margin:1.3rem 0 0; }
   header.hero::before, header.hero::after { content:""; position:absolute; width:12px; height:12px;
     border:2px solid var(--line); pointer-events:none; }
   header.hero::before { left:-1px; top:-1px; border-right:0; border-bottom:0; }
   header.hero::after { right:-1px; bottom:-1px; border-left:0; border-top:0; }
   .chips { display:flex; flex-wrap:wrap; gap:.4rem; margin:1rem 0 0; padding:0; list-style:none; }
-  .chips li { font-size:.78rem; color:var(--muted); background:var(--surface2);
+  .chips li { font-size:.78rem; color:var(--muted); background:var(--glass2); backdrop-filter:blur(8px);
     border:1px solid var(--line); border-radius:var(--r); padding:.14rem .48rem; margin:0;
     letter-spacing:.03em; white-space:nowrap; }
   kbd { font-size:.76rem; font-family:inherit; background:var(--surface2);
@@ -121,9 +125,9 @@
   .kicker { color:var(--muted); font-size:.82rem; letter-spacing:.14em; margin:0 0 .3rem; }
   .muted { color: var(--muted); }
   /* 面板：薄框 + 方角；行与行之间用 1px 细线切（参考图的列表就是这么切的）。 */
-  .panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  .panel { background:var(--glass); backdrop-filter:blur(12px) saturate(1.15); border:1px solid var(--line); border-radius:var(--r);
     margin:1rem 0; overflow:hidden; }
-  .panel .phead { display:flex; justify-content:space-between; gap:1rem; padding:.5rem .85rem;
+  .panel .phead { background:var(--glass2); backdrop-filter:blur(12px) saturate(1.15); display:flex; justify-content:space-between; gap:1rem; padding:.5rem .85rem;
     background:var(--surface2); border-bottom:1px solid var(--line); color:var(--muted);
     font-size:.85rem; letter-spacing:.04em; }
   .rows { margin:0; }
@@ -163,7 +167,7 @@
   .mk::after { content:"＋"; }
   details[open] .mk::after { content:"−"; }
   /* 展开后的内容 = 一块**内嵌面板**（参考图右侧那块详情面板的同形）。 */
-  .rb { margin:.1rem .85rem .8rem; padding:.55rem .7rem; background:var(--surface2);
+  .rb { margin:.1rem .85rem .8rem; padding:.55rem .7rem; background:var(--glass2); backdrop-filter:blur(10px) saturate(1.15);
     border:1px solid var(--line); border-radius:var(--r); color:var(--muted); }
   /* 行左侧那道 2px 强调线：hover / 键盘聚焦 / 展开时从中间长出来（形状提示，不是颜色提示）。 */
   details.row, details.row > summary { position:relative; }
@@ -317,7 +321,7 @@
     <footer><div class="foot">
       <ul class="chips">
     <li>ソースはこのページ</li>
-    <li>判定 40 項目が実行可能</li>
+    <li>判定 41 項目が実行可能</li>
     <li><kbd>Tab</kbd> で全操作に到達</li>
     <li>最終更新 <time datetime="2026-10-06">2026-10-06</time></li>
       </ul>

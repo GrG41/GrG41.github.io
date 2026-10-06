@@ -82,6 +82,41 @@ async function renderedContrast(pg, selector) {
   }, { src: "data:image/png;base64," + buf.toString("base64"), fg });
 }
 
+
+// 量「文字与它**真实**背景」的对比度：先把文字隐藏（保持布局），再截同一块区域——
+// 这样量到的像素全是背景，没有字形与抗锯齿的干扰。
+// （早先试过「剔除接近字色的像素再取 p90」，结果量到的是**抗锯齿边缘**，把好页面判成 6.2:1。）
+async function textContrast(pg, selector, min, label) {
+  const el = pg.locator(selector).first();
+  await el.scrollIntoViewIfNeeded();
+  const box = await el.boundingBox();
+  if (box === null) return { err: "找不到 " + selector };
+  const vp = pg.viewportSize();
+  const x = Math.max(0, Math.min(box.x, vp.width - 2)), y = Math.max(0, Math.min(box.y, vp.height - 2));
+  const clip = { x, y, width: Math.max(2, Math.min(box.width, vp.width - x)),
+                 height: Math.max(2, Math.min(box.height, vp.height - y)) };
+  const fg = await el.evaluate((n) => getComputedStyle(n).color);
+  await el.evaluate((n) => { n.dataset.prevVis = n.style.visibility; n.style.visibility = "hidden"; });
+  const buf = await pg.screenshot({ clip });
+  await el.evaluate((n) => { n.style.visibility = n.dataset.prevVis || ""; });
+  return await pg.evaluate(async ({ src, fg }) => {
+    const img = new Image(); img.src = src; await img.decode();
+    const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+    const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+    const L = (r, g, b) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const ls = [];
+    for (let i = 0; i < d.length; i += 4) ls.push(L(d[i], d[i + 1], d[i + 2]));
+    ls.sort((a, b) => a - b);
+    const bg = ls[Math.floor(ls.length * 0.95)];        // p95：文字可能压到的最亮那片底
+    const t = (fg.match(/\d+/g) || []).slice(0, 3).map(Number);
+    const fgl = L(t[0] || 0, t[1] || 0, t[2] || 0);
+    const [hi, lo] = [bg, fgl].sort((a, b) => b - a);
+    return { bgP95: +bg.toFixed(3), fg: +fgl.toFixed(3), ratio: +((hi + 0.05) / (lo + 0.05)).toFixed(2) };
+  }, { src: "data:image/png;base64," + buf.toString("base64"), fg });
+}
+
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox"] });
 
 // ── 本页（完整套件）──────────────────────────────────────────────────────────
@@ -108,20 +143,57 @@ check("页面上不再有亮色开关", (await page.$("input#lt")) === null && (
 const first = await page.evaluate(() => { const el = document.querySelector("a, button, input, summary");
   return el ? (el.className || el.tagName) : null; });
 check("首个可聚焦元素是跳转链接", String(first).includes("skip"), String(first));
-check("每个可见文字元素都有不透明背衬", (await page.evaluate(BACKLESS)).length === 0,
-  JSON.stringify((await page.evaluate(BACKLESS)).slice(0, 3)));
+// 「文字必须坐在**不透明**表面上」这条不变量**退役了**——2026-10-06 起设计改成毛玻璃，
+// 它的前提没了。留下来的是一条更严的要求：**把文字藏起来，量它背后真实的亮度**，
+// 再要求对比度达标（见下面的 textContrast）。前提变了，判据就得跟着换，
+// 留着旧的那条只会挡住合法的设计。
 for (const [sel, min, label] of [["header.hero h1", 7, "标题"], ["header.hero .lead", 7, "副标题"],
                                  ["header.hero .muted", 4.5, "次要文字"], ["main p", 7, "正文段落"]]) {
-  const r = await renderedContrast(page, sel);
-  check(`渲染像素(320px)：${label} 与其实际背景 ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
+  const r = await textContrast(page, sel, min, label);
+  check(`毛玻璃上：${label} 与其真实背景 ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
 }
 const wide = await browser.newPage({ viewport: { width: 1280, height: 950 }, locale: "zh-CN" });
 await wide.goto(URL, { waitUntil: "load" });
 for (const [sel, min, label] of [["header.hero h1", 7, "标题"], ["main p", 7, "正文段落"]]) {
-  const r = await renderedContrast(wide, sel);
-  check(`渲染像素(1280px)：${label} ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
+  const r = await textContrast(wide, sel, min, label);
+  check(`毛玻璃上(1280)：${label} ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
 }
 await wide.close();
+
+// 「半透明」不能只是说法：要验①面板确实半透明且有背景模糊；②背景图真的透了出来
+const glassAudit = await page.evaluate(() => {
+  const p = document.querySelector(".panel") || document.querySelector("header.hero");
+  const cs = getComputedStyle(p);
+  const alpha = (cs.backgroundColor.match(/[\d.]+/g) || [])[3];
+  return { alpha: alpha === undefined ? 1 : Number(alpha), blur: /blur/.test(cs.backdropFilter || ""),
+           bodyImg: getComputedStyle(document.body).backgroundImage !== "none" };
+});
+check("面板是半透明且有背景模糊（毛玻璃）", glassAudit.alpha < 1 && glassAudit.blur && glassAudit.bodyImg,
+  JSON.stringify(glassAudit));
+const heroBox = await page.locator("header.hero").first().boundingBox();
+const sampleHero = async () => {
+  const el = page.locator("header.hero").first();
+  await el.evaluate((n) => { n.dataset.prevVis = n.style.visibility; n.style.visibility = "hidden"; });
+  const b = await page.screenshot({ clip: { x: Math.max(0, heroBox.x), y: Math.max(0, heroBox.y),
+    width: Math.min(heroBox.width, 320 - Math.max(0, heroBox.x)), height: Math.min(heroBox.height, 800 - Math.max(0, heroBox.y)) } });
+  await el.evaluate((n) => { n.style.visibility = n.dataset.prevVis || ""; });
+  return await page.evaluate(async (src) => {
+    const img = new Image(); img.src = src; await img.decode();
+    const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+    const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+    let s = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4) { s += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; n++; }
+    return +(s / n).toFixed(4);
+  }, "data:image/png;base64," + b.toString("base64"));
+};
+const withArt = await sampleHero();
+await page.addStyleTag({ content: "body { background-image: none !important; }" });
+const withoutArt = await sampleHero();
+check("背景图真的透过毛玻璃（关掉它，面板亮度会变）", Math.abs(withArt - withoutArt) > 0.004,
+  `有图 ${withArt} / 无图 ${withoutArt}`);
+
+
 
 // ── 抽屉：**在层叠的底部**，打开时内容让开 ──────────────────────────────────
 const drawer = await page.evaluate(() => {
@@ -284,8 +356,9 @@ if (LOCAL) {
       canonical: !!document.querySelector('link[rel="canonical"]'),
       body: document.body.innerText,
     }));
-    const bl = await pg.evaluate(BACKLESS);
-    if (bl.length) bad.backless.push({ f, bl: bl.slice(0, 2) });
+    // 毛玻璃之后，「不透明背衬」不再是要求——改成逐页量**真实背景**的对比度。
+    const tc = await textContrast(pg, "main p", 7, "正文段落");
+    if (!(tc.ratio >= 7)) bad.backless.push({ f, ratio: tc.ratio });
     if (r.text < 150) bad.text.push(f);
     if (r.hreflang !== 3 || !r.canonical) bad.lang.push(f);
     // 语言切换器（中文 / English / 日本語）与品牌名**本来就该用各自的语言写**，
@@ -301,7 +374,7 @@ if (LOCAL) {
   }
   check("跨页：9 个产物都有正文（≥150 字）、都有 hreflang×3 与 canonical", bad.text.length === 0 && bad.lang.length === 0,
     JSON.stringify(bad.text.concat(bad.lang)));
-  check("跨页：9 个产物的背衬不变量都成立", bad.backless.length === 0, JSON.stringify(bad.backless));
+  check("跨页：9 个产物的正文对真实背景都 ≥7:1（毛玻璃下逐页验）", bad.backless.length === 0, JSON.stringify(bad.backless));
   check("跨页：英文页面不混中日文字符", bad.mixed.length === 0, JSON.stringify(bad.mixed));
 }
 
