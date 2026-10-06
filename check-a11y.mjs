@@ -49,13 +49,17 @@ async function renderedContrast(pg, selector) {
     const d = cx.getImageData(0, 0, cv.width, cv.height).data;
     const lum = (r, g, b) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
       return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    // 用**众数桶**当「文字所坐的底色」，别用 p90 —— 试过更严的口径，它量到的是
+    // **白字的抗锯齿边缘**（边缘跨度 0→0.85，中间调一大堆），于是把好页面判成 6.2:1。
+    // 「某处有亮斑」这件事交给下面的全局扫描管，两者分工：
+    //   这条 = 文字所坐的底色到底亮不亮；全局扫描 = 有没有亮斑可能漂到字下面。
     const bins = new Array(20).fill(0);
     for (let i = 0; i < d.length; i += 4) bins[Math.min(19, Math.floor(lum(d[i], d[i + 1], d[i + 2]) * 20))]++;
     let mode = 0; for (let i = 1; i < 20; i++) if (bins[i] > bins[mode]) mode = i;
     const bg = (mode + 0.5) / 20;
     const t = (fg.match(/\d+/g) || []).slice(0, 3).map(Number);
     const fgl = lum(t[0] || 0, t[1] || 0, t[2] || 0);
-    const [hi, lo] = [bg, fgl].sort((a, b) => b - a);
+    const [hi, lo] = [bg, fgl].sort((x, y) => y - x);
     return { bg: +bg.toFixed(3), fg: +fgl.toFixed(3), ratio: +((hi + 0.05) / (lo + 0.05)).toFixed(2) };
   }, { src, fg });
 }
@@ -242,13 +246,56 @@ check("背景图已接入（不是 none）",
   await page.evaluate(() => getComputedStyle(document.body).backgroundImage.slice(0, 60)));
 
 // ── 渲染像素：文字 vs 它**实际**的背景（背景图在这儿才管得住）────────────────
-for (const [sel, min, label] of [["header.hero h1", 7, "标题"],
-                                 ["header.hero .lead", 7, "副标题"],
-                                 ["header.hero .muted", 4.5, "次要文字"],
-                                 [".rows .row dd", 7, "面板内正文"]]) {
+// **两种视口都要量**：320px（窄屏回流）与 1280px（多数访客看到的布局）。
+// 背景图是 `cover + fixed`，两种宽度下落在文字后面的部分不一样——
+// 只量一种会漏（2026-10-06：1280px 下标题附近有个亮度 0.19 的亮斑，窄屏那档完全看不见）。
+const SEL = [["header.hero h1", 7, "标题"], ["header.hero .lead", 7, "副标题"],
+             ["header.hero .muted", 4.5, "次要文字"], [".rows .row dd", 7, "面板内正文"]];
+for (const [sel, min, label] of SEL) {
   const r = await renderedContrast(page, sel);
-  check(`渲染像素：${label} 与其实际背景 ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
+  check(`渲染像素(320px)：${label} 与其实际背景 ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
 }
+const wide = await browser.newPage({ viewport: { width: 1280, height: 950 }, locale: "zh-CN" });
+await wide.goto(URL, { waitUntil: "load" });
+for (const [sel, min, label] of SEL) {
+  const r = await renderedContrast(wide, sel);
+  check(`渲染像素(1280px)：${label} 与其实际背景 ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
+}
+await wide.close();
+
+// ── 全局扫描：整页任何**没有文字**的地方，背景都不许亮到威胁正文 ─────────────
+// 为什么需要：上面那些判据只看文字**当前**所在的位置。而背景图是 `cover + fixed`，
+// 会随窗口大小漂移——今天没压在字上，不代表换个窗口不会。所以反过来扫：
+// 一次整页截图 → 按 12px 条带算每带的 p90 → **跳过与文字元素相交的带** →
+// 剩下里最亮的那条，就是「文字可能压到的最亮背景」。
+// 阈值 0.078：与最亮文字（#e8eef5，亮度 0.849）相比刚好 7:1。
+const boxes = await page.evaluate(() => [...document.querySelectorAll("h1, p, li, dt, dd, a, label, code, .num")]
+  .filter((el) => el.offsetParent !== null)
+  .map((el) => { const r = el.getBoundingClientRect();
+    return { t: r.top + window.scrollY, b: r.bottom + window.scrollY }; }));
+const fullBuf = await page.screenshot({ fullPage: true });
+const scan = await page.evaluate(async ({ src, boxes }) => {
+  const img = new Image(); img.src = src; await img.decode();
+  const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+  const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0);
+  const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+  const lum = (r, g, b) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+  const band = 12; let worst = { p90: 0, y: -1 }, scanned = 0;
+  for (let y0 = 0; y0 + band <= cv.height; y0 += band) {
+    if (boxes.some((b) => y0 + band > b.t - 4 && y0 < b.b + 4)) continue;   // 与文字相交 → 跳过
+    const ls = [];
+    for (let y = y0; y < y0 + band; y++) for (let x = 0; x < cv.width; x += 2) {
+      const i = (y * cv.width + x) * 4; ls.push(lum(d[i], d[i + 1], d[i + 2])); }
+    ls.sort((p, q) => p - q);
+    scanned++;
+    const p90 = ls[Math.floor(ls.length * 0.9)];
+    if (p90 > worst.p90) worst = { p90: +p90.toFixed(3), y: y0 };
+  }
+  return { ...worst, scanned, height: cv.height };
+}, { src: "data:image/png;base64," + fullBuf.toString("base64"), boxes });
+check(`全局扫描：无文字处的背景 p90 ≤ 0.078（= 与最亮文字 7:1；扫了 ${scan.scanned} 条带）`,
+  scan.p90 <= 0.078, `最亮条带 y=${scan.y} p90=${scan.p90}`);
 
 await browser.close();
 
