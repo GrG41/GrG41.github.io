@@ -126,6 +126,12 @@ for (const [loc, lang, expect] of [["en-US", "en", "High contrast"],
   await p5.goto(URL, { waitUntil: "load" });
   const got = await p5.evaluate(() => document.querySelector("label[for=hc]").innerText.replace(/\s+/g, " ").trim());
   check(`${lang} 页面：开关文案是「${expect}」`, got === expect, JSON.stringify(got));
+  // 那句「你的系统偏好亮色」的提示也必须跟着语言走，否则英文访客会读到一句中文。
+  const hint = await p5.evaluate(() => document.querySelector("p.hint").innerText.replace(/\s+/g, " ").trim());
+  const hintOk = lang === "en" ? (hint.includes("dark by default") && !/[\u3040-\u30ff]/.test(hint))
+    : lang === "ja" ? hint.includes("既定で暗色")
+    : hint.includes("默认暗色");
+  check(`${lang} 页面：亮色提示也是该语言`, hintOk, JSON.stringify(hint));
   await c3.close();
 }
 
