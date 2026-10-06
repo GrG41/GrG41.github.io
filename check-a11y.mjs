@@ -187,9 +187,35 @@ check("次要文字对比度 ≥ 4.5:1", ratio(mutedCr.fg, mutedCr.bg) >= 4.5, r
 
 // ── 动画：减少动态偏好下不该有过渡 ───────────────────────────────────────────
 await page.emulateMedia({ reducedMotion: "reduce" });
-const td = await page.evaluate(() => getComputedStyle(document.querySelector(".lang a")).transitionDuration);
-check("prefers-reduced-motion: reduce → 无过渡", td === "0s" || td === "0s, 0s", td);
+const still = await page.evaluate(() => {
+  const a = document.querySelector(".lang a");
+  const mk = document.querySelector(".mk");
+  const rb = document.querySelector("details.row .rb");
+  const d = document.querySelector("details.row"); d.open = true;
+  const cs = getComputedStyle(rb);
+  const r = { transition: getComputedStyle(a).transitionDuration,
+              anim: getComputedStyle(a).animationName,
+              markerAnim: getComputedStyle(mk.querySelector("span") || mk).animationName,
+              rbOpacity: cs.opacity, rbHeight: Math.round(rb.getBoundingClientRect().height) };
+  d.open = false; return r; });
+check("减少动效时无过渡", /^(0s,?\s*)+$/.test(still.transition), still.transition);
+check("减少动效时无动画", still.anim === "none" && still.markerAnim === "none", JSON.stringify(still));
+// **这条是重点**：动效关掉之后，内容不许跟着消失（透明度得是 1、高度得是真的）。
+check("减少动效时折叠内容仍然可见（动效不是内容的前提）",
+  Number(still.rbOpacity) === 1 && still.rbHeight > 4, JSON.stringify(still));
 await page.emulateMedia({ reducedMotion: "no-preference" });
+
+// ② 允许动效时，动效要真的存在（否则「加了动效」只是说法）
+const motion = await page.evaluate(() => {
+  const dur = (el, pseudo) => getComputedStyle(el, pseudo || null).transitionDuration;
+  const nonzero = (v) => v.split(",").some((x) => parseFloat(x) > 0);
+  return { summary: nonzero(dur(document.querySelector("details.row > summary"))),
+           chip: nonzero(dur(document.querySelector(".chips li"))),
+           tab: nonzero(dur(document.querySelector(".lang a"))),
+           accentBar: nonzero(dur(document.querySelector("details.row > summary"), "::before")) };
+});
+check("允许动效时：行列 / chips / 页签 / 强调线都有过渡",
+  motion.summary && motion.chip && motion.tab && motion.accentBar, JSON.stringify(motion));
 
 check("有站点图标（favicon）", await page.evaluate(() => !!document.querySelector('link[rel="icon"]')));
 
@@ -318,7 +344,9 @@ const detailsAudit = await page.evaluate(async () => {
   const d0 = all[0], body = d0.querySelector(".rb");
   d0.open = true; await frame();
   const visibleWhenOpen = body.getBoundingClientRect().height > 4;
-  d0.open = false; await frame();
+  // 收起要**等动画走完**再量。动画 280ms，这里等 450ms——第一版只等一帧，
+  // 于是「已收起」永远量不到 0（那是量法错，不是页面错）。
+  d0.open = false; await new Promise((r) => setTimeout(r, 450));
   const hiddenWhenClosed = body.getBoundingClientRect().height === 0;
   return { n: all.length, withBody, closed: all.filter((d) => !d.open).length,
            visibleWhenOpen, hiddenWhenClosed };
