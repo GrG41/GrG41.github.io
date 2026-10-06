@@ -56,7 +56,10 @@
   .menubtn { display:inline-flex; align-items:center; gap:.4rem; font-size:.82rem; padding:.24rem .6rem;
     background:var(--surface2); border:1px solid var(--line); border-radius:var(--r);
     color:var(--fg); cursor:pointer; font-family:inherit; }
-  .menubtn .burger { font-size:1rem; line-height:1; color:var(--muted); }
+  /* 汉堡图标**用 CSS 画**，不用字符：这个环境里 ☰(U+2630) 是豆腐块——
+     实测抓到过一次（截图里显示成「⊠」）。图标不该依赖字体有没有那个字形。 */
+  .menubtn .burger { width:14px; height:2px; background:currentColor; border-radius:1px;
+    box-shadow:0 -5px 0 currentColor, 0 5px 0 currentColor; display:inline-block; }
   .drawer { position:fixed; inset:0 auto 0 0; width:min(19rem, 84vw); margin:0; padding:0;
     background:var(--surface); border:0; border-right:1px solid var(--line); color:var(--fg);
     max-height:100vh; overflow:auto; border-radius:0; }
@@ -257,7 +260,7 @@
 <div class="bar">
   <div class="bar-in">
     <button class="menubtn" popovertarget="toc" aria-haspopup="dialog">
-      <span class="burger" aria-hidden="true">☰</span>
+      <span class="burger" aria-hidden="true"></span>
       <span data-i18n><span lang="zh-CN">目录</span><span lang="en">Contents</span><span lang="ja">目次</span></span>
     </button>
     <p class="brand">小爪 <span>キツのめ</span></p>
@@ -312,7 +315,7 @@
   <p class="muted">这一页既是门面，也是样品：它的写法就是我的工作方式。</p>
   <ul class="chips">
     <li>三语 · 自动切换</li><li>默认暗色</li>
-    <li>无障碍判据 68 条（可跑）</li><li>背景自绘 · 无外部素材</li>
+    <li>无障碍判据 69 条（可跑）</li><li>背景自绘 · 无外部素材</li>
   </ul>
 </header>
 <main id="main">
@@ -368,7 +371,7 @@
   <p class="muted">This page is both the shopfront and the sample: how it is written is how I work.</p>
   <ul class="chips">
     <li>Three languages, auto-switched</li><li>Dark by default</li>
-    <li>68 accessibility checks (runnable)</li><li>Self-drawn background</li>
+    <li>69 accessibility checks (runnable)</li><li>Self-drawn background</li>
   </ul>
 </header>
 <main>
@@ -424,7 +427,7 @@
   <p class="muted">このページは名刺であり、同時に作品見本です。書き方が、そのまま私の仕事のやり方です。</p>
   <ul class="chips">
     <li>三言語・自動切替</li><li>既定は暗色</li>
-    <li>アクセシビリティ判定 68 項目（実行可能）</li><li>背景は自作・外部素材なし</li>
+    <li>アクセシビリティ判定 69 項目（実行可能）</li><li>背景は自作・外部素材なし</li>
   </ul>
 </header>
 <main>
@@ -475,7 +478,7 @@
 <footer><div class="foot">
   <ul class="chips">
     <li data-i18n><span lang="zh-CN">源码即本页</span><span lang="en">Source is this page</span><span lang="ja">ソースはこのページ</span></li>
-    <li data-i18n><span lang="zh-CN">判据 68 条可跑</span><span lang="en">68 runnable checks</span><span lang="ja">判定 68 項目が実行可能</span></li>
+    <li data-i18n><span lang="zh-CN">判据 69 条可跑</span><span lang="en">69 runnable checks</span><span lang="ja">判定 69 項目が実行可能</span></li>
     <li data-i18n><span lang="zh-CN"><kbd>Tab</kbd> 可达全部控件</span><span lang="en"><kbd>Tab</kbd> reaches every control</span><span lang="ja"><kbd>Tab</kbd> で全操作に到達</span></li>
     <li data-i18n><span lang="zh-CN">最后更新 <time datetime="2026-10-06">2026-10-06</time></span><span lang="en">Last updated <time datetime="2026-10-06">2026-10-06</time></span><span lang="ja">最終更新 <time datetime="2026-10-06">2026-10-06</time></span></li>
   </ul>

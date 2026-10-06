@@ -345,6 +345,20 @@ const drawerAudit = await page.evaluate(() => {
            isPopover: toc ? toc.hasAttribute("popover") : false,
            links: toc ? toc.querySelectorAll("a[href^='#']").length : 0 };
 });
+// 图标不许依赖字体：这个环境里 ☰(U+2630) 是豆腐块（截图里显示成「⊠」），
+// 所以汉堡图标必须是 CSS 画的——内文为空、但有尺寸与背景。
+const burger = await page.evaluate(() => {
+  const b = document.querySelector(".menubtn .burger");
+  if (!b) return null;
+  const cs = getComputedStyle(b);
+  const r = b.getBoundingClientRect();
+  return { text: b.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height),
+           bg: cs.backgroundColor, shadow: cs.boxShadow !== "none" };
+});
+check("汉堡图标不依赖字体（CSS 绘制、无文字）",
+  burger !== null && burger.text === "" && burger.w > 8 && burger.h > 0 && burger.shadow,
+  JSON.stringify(burger));
+
 check("目录抽屉存在，且开关走 Popover API（不自己写）",
   drawerAudit.hasToc && drawerAudit.hasBtn && drawerAudit.isPopover, JSON.stringify(drawerAudit));
 
