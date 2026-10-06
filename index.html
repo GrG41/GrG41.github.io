@@ -16,9 +16,17 @@
     --r:3px; }
 
   html { font-size: 21px; }
-  body { margin:0; background:var(--bg); color:var(--fg);
+  body { margin:0; color:var(--fg);
+    background-color:var(--bg);
+    background-image:url("bg.svg");
+    background-size:cover; background-position:center top; background-attachment:fixed;
+    background-repeat:no-repeat;
     font-family: system-ui, -apple-system, "Noto Sans CJK SC", "Hiragino Sans", sans-serif;
     line-height:1.75; -webkit-font-smoothing: antialiased; }
+  /* scrim：把背景图压到「只是质感」的程度。z-index:-1 → 在图之上、正文之下。
+     它的不透明度就是正文对比度的保险丝——改它之前先看 check-a11y 的渲染像素判据。 */
+  body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+    background: color-mix(in oklab, var(--bg) 88%, transparent); }
   .wrap { max-width: 62ch; margin:0 auto; padding: 0 1.25rem 4rem; }
 
   /* 顶栏：品牌 + 语言开关 + 显示开关。粘性只用来让开关随时够得着。 */
@@ -103,6 +111,10 @@
   html:has(#hc:checked) a, html:has(#hc:checked) .lang a, html:has(#hc:checked) .toggle label {
     text-decoration:underline; }
   html:has(#hc:checked) .card { border-width:2px; }
+  /* 高对比度：背景图收掉——质感不该跟对比度抢。 */
+  @media (prefers-contrast: more) { body { background-image:none; } }
+  @media (forced-colors: active) { body { background-image:none; } }
+  html:has(#hc:checked) body { background-image:none; }
 </style>
 </head>
 <body>

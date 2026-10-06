@@ -26,6 +26,40 @@ const colorsOf = (page) => page.evaluate(() => {
 
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox"] });
 
+
+// ── 渲染像素判据：量「文字跟它**实际**的背景」的对比度 ─────────────────────────
+//
+// 为什么需要它：`getComputedStyle` 拿到的是**声明的颜色**。加了背景图之后，
+// 声明的背景色没变，而实际渲染出来的可能亮得多——33 条声明式判据对此**完全无感**
+// （2026-10-06 实测：接上背景图之后 33/33 照样全绿）。
+// 做法：截取元素所在的矩形 → 在画布里做亮度直方图 → **取众数桶**当背景
+// （背景像素占多数），再跟该元素的文字颜色算对比度。
+async function renderedContrast(pg, selector) {
+  const el = pg.locator(selector).first();
+  const box = await el.boundingBox();
+  if (box === null) return { err: "找不到元素 " + selector };
+  const clip = { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height };
+  const buf = await pg.screenshot({ clip });
+  const src = "data:image/png;base64," + buf.toString("base64");
+  const fg = await el.evaluate((n) => getComputedStyle(n).color);
+  return await pg.evaluate(async ({ src, fg }) => {
+    const img = new Image(); img.src = src; await img.decode();
+    const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height;
+    const cx = cv.getContext("2d"); cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0, 0, cv.width, cv.height).data;
+    const lum = (r, g, b) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const bins = new Array(20).fill(0);
+    for (let i = 0; i < d.length; i += 4) bins[Math.min(19, Math.floor(lum(d[i], d[i + 1], d[i + 2]) * 20))]++;
+    let mode = 0; for (let i = 1; i < 20; i++) if (bins[i] > bins[mode]) mode = i;
+    const bg = (mode + 0.5) / 20;
+    const t = (fg.match(/\d+/g) || []).slice(0, 3).map(Number);
+    const fgl = lum(t[0] || 0, t[1] || 0, t[2] || 0);
+    const [hi, lo] = [bg, fgl].sort((a, b) => b - a);
+    return { bg: +bg.toFixed(3), fg: +fgl.toFixed(3), ratio: +((hi + 0.05) / (lo + 0.05)).toFixed(2) };
+  }, { src, fg });
+}
+
 // ── 默认档（不模拟任何偏好）──────────────────────────────────────────────────
 let page = await browser.newPage({ viewport: { width: 320, height: 800 }, locale: "zh-CN" });
 await page.goto(URL, { waitUntil: "load" });
@@ -203,6 +237,19 @@ const noJsVisible = await p2.evaluate(() => [...document.querySelectorAll("[data
   .filter((b) => getComputedStyle(b).display !== "none").map((b) => b.getAttribute("data-lang-block")));
 check("禁 JS 时只显示中文（不靠脚本才有内容）",
   noJsVisible.length === 1 && noJsVisible[0] === "zh", JSON.stringify(noJsVisible));
+check("背景图已接入（不是 none）",
+  !/none/.test(await page.evaluate(() => getComputedStyle(document.body).backgroundImage)),
+  await page.evaluate(() => getComputedStyle(document.body).backgroundImage.slice(0, 60)));
+
+// ── 渲染像素：文字 vs 它**实际**的背景（背景图在这儿才管得住）────────────────
+for (const [sel, min, label] of [["header.hero h1", 7, "标题"],
+                                 ["header.hero .lead", 7, "副标题"],
+                                 ["header.hero .muted", 4.5, "次要文字"],
+                                 [".rows .row dd", 7, "面板内正文"]]) {
+  const r = await renderedContrast(page, sel);
+  check(`渲染像素：${label} 与其实际背景 ≥ ${min}:1`, r.ratio >= min, JSON.stringify(r));
+}
+
 await browser.close();
 
 let bad = 0;
