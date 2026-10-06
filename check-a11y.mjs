@@ -302,9 +302,16 @@ const claimed = await page.evaluate(() => {
     found.add(Number(m[1] || m[2] || m[3]));
   return [...found];
 });
-check("页面上写的判据条数（三语一致）== 实际条数",
-  claimed.length === 1 && claimed[0] === results.length + 1,
-  `页面写 ${JSON.stringify(claimed)}，实际 ${results.length + 1}`);
+if (LOCAL) {
+  check("页面上写的判据条数（三语一致）== 实际条数",
+    claimed.length === 1 && claimed[0] === results.length + 1,
+    `页面写 ${JSON.stringify(claimed)}，实际 ${results.length + 1}`);
+} else {
+  // 线上模式会跳过 5 条只在本地跑的判据（链接指向文件、跨页一致性、产物漂移），
+  // 所以「页面写的条数」对不上是**预期的**——那条断言说的是「全套本地产物的条数」。
+  // 第一版没区分，线上永远是红的。（红得没有信息量，比绿还坏。）
+  console.log(`（线上模式：跳过条数自洽——它断言的是全套本地产物的 39 条；本次线上跑了 ${results.length} 条）`);
+}
 
 await browser.close();
 let bad = 0;
