@@ -116,6 +116,19 @@ check("深链 #en 覆盖自动识别（手动切换生效）", r4.on.length === 
   JSON.stringify(r4));
 await p4.close();
 
+// ── 界面文案不许混语言：三种语言下，顶栏开关必须是该语言的那一句 ───────────
+// （第一版我用「汉字范围」判日文——错的：日文本来就用汉字。改成精确比对期望文案。）
+for (const [loc, lang, expect] of [["en-US", "en", "High contrast"],
+                                   ["ja-JP", "ja", "高コントラスト"],
+                                   ["zh-CN", "zh", "高对比度"]]) {
+  const c3 = await browser.newContext({ locale: loc });
+  const p5 = await c3.newPage({ viewport: { width: 1280, height: 900 } });
+  await p5.goto(URL, { waitUntil: "load" });
+  const got = await p5.evaluate(() => document.querySelector("label[for=hc]").innerText.replace(/\s+/g, " ").trim());
+  check(`${lang} 页面：开关文案是「${expect}」`, got === expect, JSON.stringify(got));
+  await c3.close();
+}
+
 // ── 次要文字也不能糊（美化最容易牺牲的就是它）────────────────────────────────
 const mutedCr = await page.evaluate(() => {
   const el = document.querySelector("p.hint") || document.querySelector(".muted");
