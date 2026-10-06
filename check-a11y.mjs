@@ -27,7 +27,7 @@ const colorsOf = (page) => page.evaluate(() => {
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox"] });
 
 // ── 默认档（不模拟任何偏好）──────────────────────────────────────────────────
-let page = await browser.newPage({ viewport: { width: 320, height: 800 } });
+let page = await browser.newPage({ viewport: { width: 320, height: 800 }, locale: "zh-CN" });
 await page.goto(URL, { waitUntil: "load" });
 
 const overflow = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, iw: window.innerWidth }));
@@ -87,6 +87,51 @@ else {
   check("高对比度下链接带下划线（不靠颜色区分）", ul.includes("underline"), ul);
 }
 
+// ── 多语言：默认中文、按浏览器语言自适应、手动切换与深链 ─────────────────────
+const visible = (pg) => pg.evaluate(() => {
+  const on = [...document.querySelectorAll("[data-lang-block]")]
+    .filter((b) => getComputedStyle(b).display !== "none").map((b) => b.getAttribute("data-lang-block"));
+  return { on, lang: document.documentElement.lang, chars: document.body.innerText.length };
+});
+let v = await visible(page);
+check("中文环境：默认显示中文，且 html lang 正确", v.on.length === 1 && v.on[0] === "zh" && v.lang.startsWith("zh"),
+  JSON.stringify(v));
+check("页面上有三个语言块与三个切换项", await page.evaluate(() =>
+  document.querySelectorAll("[data-lang-block]").length === 3 &&
+  document.querySelectorAll(".lang a[data-lang]").length === 3));
+
+for (const [loc, want] of [["en-US", "en"], ["ja-JP", "ja"], ["zh-CN", "zh"]]) {
+  const c2 = await browser.newContext({ locale: loc });
+  const p3 = await c2.newPage();
+  await p3.goto(URL, { waitUntil: "load" });
+  const r = await visible(p3);
+  check(`浏览器语言 ${loc} → 自动显示 ${want}`, r.on.length === 1 && r.on[0] === want, JSON.stringify(r));
+  await c2.close();
+}
+
+const p4 = await browser.newPage({ locale: "zh-CN" });
+await p4.goto(URL + "#en", { waitUntil: "load" });
+const r4 = await visible(p4);
+check("深链 #en 覆盖自动识别（手动切换生效）", r4.on.length === 1 && r4.on[0] === "en" && r4.lang === "en",
+  JSON.stringify(r4));
+await p4.close();
+
+// ── 次要文字也不能糊（美化最容易牺牲的就是它）────────────────────────────────
+const mutedCr = await page.evaluate(() => {
+  const el = document.querySelector("p.hint") || document.querySelector(".muted");
+  const cs = getComputedStyle(el);
+  const parse = (s) => (s.match(/\d+/g) || []).slice(0, 3).map(Number);
+  return { fg: parse(cs.color), bg: parse(getComputedStyle(document.body).backgroundColor) }; });
+check("次要文字对比度 ≥ 4.5:1", ratio(mutedCr.fg, mutedCr.bg) >= 4.5, ratio(mutedCr.fg, mutedCr.bg).toFixed(2) + ":1");
+
+// ── 动画：减少动态偏好下不该有过渡 ───────────────────────────────────────────
+await page.emulateMedia({ reducedMotion: "reduce" });
+const td = await page.evaluate(() => getComputedStyle(document.querySelector(".lang a")).transitionDuration);
+check("prefers-reduced-motion: reduce → 无过渡", td === "0s" || td === "0s, 0s", td);
+await page.emulateMedia({ reducedMotion: "no-preference" });
+
+check("有站点图标（favicon）", await page.evaluate(() => !!document.querySelector('link[rel="icon"]')));
+
 // ── 亮色是**开关**，不是跟随系统；偏好亮色的人会看到一句提示 ─────────────────
 await page.emulateMedia({ colorScheme: "light" });
 const hint = await page.evaluate(() => getComputedStyle(document.querySelector("p.hint")).display);
@@ -109,7 +154,14 @@ const noJs = await browser.newContext({ javaScriptEnabled: false });
 const p2 = await noJs.newPage();
 const resp = await p2.goto(URL, { waitUntil: "load" });
 const text = await p2.evaluate(() => document.body.innerText.length);
-check("禁 JS 仍返回 200 且有正文", resp.status() === 200 && text > 1000, `HTTP ${resp.status()} / ${text} 字`);
+const zhText = await p2.evaluate(() => document.querySelector('[data-lang-block="zh"]').innerText);
+check("禁 JS 仍返回 200 且有正文（中文块可见）",
+  resp.status() === 200 && zhText.includes("不让「看起来通过」发生") && text > 500,
+  `HTTP ${resp.status()} / ${text} 字 / 关键句=${zhText.includes("不让「看起来通过」发生")}`);
+const noJsVisible = await p2.evaluate(() => [...document.querySelectorAll("[data-lang-block]")]
+  .filter((b) => getComputedStyle(b).display !== "none").map((b) => b.getAttribute("data-lang-block")));
+check("禁 JS 时只显示中文（不靠脚本才有内容）",
+  noJsVisible.length === 1 && noJsVisible[0] === "zh", JSON.stringify(noJsVisible));
 await browser.close();
 
 let bad = 0;
