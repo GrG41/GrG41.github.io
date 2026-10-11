@@ -124,7 +124,9 @@ ${body}
   try {
     var want = localStorage.getItem("kitsunome-lang") || detectLang();
     var here = document.documentElement.getAttribute("data-lang");
-    var atRoot = location.pathname === "/" || /\\/index\\.html$/.test(location.pathname);
+    // 只在 http(s) 下跳：file:// 上绝对路径会指到文件系统根，把页面变成错误页
+    var httpish = location.protocol === "http:" || location.protocol === "https:";
+    var atRoot = httpish && (location.pathname === "/" || /\\/index\\.html$/.test(location.pathname));
     var to = want === "en" ? "/en/" : want === "ja" ? "/ja/" : "/";
     if (atRoot && want && here && want !== here) location.replace(to);
   } catch (e) {}
