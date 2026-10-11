@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
+// 注意：这个常量名遮蔽了全局 URL 构造器，需要构造 URL 时用 globalThis.URL。
 const URL = process.argv[2] || "https://grg41.github.io/";
 const LOCAL = URL.startsWith("file://");
 const exe = process.env.AB_CHROMIUM || execFileSync("bash", ["-lc",
@@ -117,11 +118,18 @@ async function textContrast(pg, selector, min, label) {
   }, { src: "data:image/png;base64," + buf.toString("base64"), fg });
 }
 
+// 加载时的 JS 错误必须被看见：脚本语法坏了、链接与抽屉照样能用，
+// 只有重定向之类的行为会**悄悄失效**（2026-10-10 实测：模板字符串吃掉了正则的反斜杠，
+// 整段脚本语法错误，而我的判据全绿）。
+const pageErrors = [];
 const browser = await chromium.launch({ executablePath: exe, args: ["--no-sandbox"] });
 
 // ── 本页（完整套件）──────────────────────────────────────────────────────────
 let page = await browser.newPage({ viewport: { width: 320, height: 800 }, locale: "zh-CN" });
+page.on("pageerror", (e) => pageErrors.push(String(e.message).slice(0, 120)));
 await page.goto(URL, { waitUntil: "load" });
+await page.waitForTimeout(300);
+check("加载时没有 JS 错误（脚本语法正确）", pageErrors.length === 0, JSON.stringify(pageErrors.slice(0, 2)));
 
 const overflow = await page.evaluate(() => ({ sw: document.scrollingElement.scrollWidth, iw: window.innerWidth }));
 check("320px 宽无横向溢出", overflow.sw <= overflow.iw + 1, JSON.stringify(overflow));
@@ -194,6 +202,28 @@ check("背景图真的透过毛玻璃（关掉它，面板亮度会变）", Math
   `有图 ${withArt} / 无图 ${withoutArt}`);
 
 
+
+// ── 语言自适应：浏览器语言 + **手动偏好**（手动优先）─────────────────────────
+if (/^https?:/.test(URL)) {
+  const base = new globalThis.URL(URL).origin + "/";
+  const cases = [["en-US", null, "/en/"], ["ja-JP", null, "/ja/"], ["zh-CN", null, "/"],
+                 ["en-US", "ja", "/ja/"], ["ja-JP", "en", "/en/"], ["zh-CN", "en", "/en/"]];
+  const wrong = [];
+  for (const [loc, saved, want] of cases) {
+    const ctx = await browser.newContext({ locale: loc });
+    const pg2 = await ctx.newPage();
+    if (saved) { await pg2.goto(base + "en/", { waitUntil: "domcontentloaded" });
+                 await pg2.evaluate((v) => localStorage.setItem("kitsunome-lang", v), saved); }
+    await pg2.goto(base, { waitUntil: "load" });
+    await pg2.waitForTimeout(700);
+    const got = new globalThis.URL(pg2.url()).pathname;
+    if (got !== want) wrong.push({ loc, saved, want, got });
+    await ctx.close();
+  }
+  check("语言自适应：6 种组合都落到正确语言（手动偏好优先）", wrong.length === 0, JSON.stringify(wrong));
+} else {
+  console.log("（file:// 下跳过语言自适应检查：绝对路径在文件系统上不成立）");
+}
 
 // ── 抽屉：**在层叠的底部**，打开时内容让开 ──────────────────────────────────
 const drawer = await page.evaluate(() => {

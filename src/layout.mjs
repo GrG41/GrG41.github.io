@@ -45,7 +45,7 @@ export function render({ lang, page, nav, body, checks, date }) {
   const foot = U.footer.map((t) => `<li>${t.replace("{n}", checks).replace(/\{d\}/g, date)}</li>`).join("\n    ");
 
   return `<!doctype html>
-<html lang="${L.htmlLang}" data-page="${page.id}">
+<html lang="${L.htmlLang}" data-lang="${lang}" data-page="${page.id}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -119,20 +119,26 @@ ${body}
       var s = document.querySelector(".menubtn"); if (s) s.focus();
     }
   });
-  // 自适应：只在语言根目录、且访客没手动选过时，跳到浏览器偏好的语言。
+  // 自适应：只在语言根目录做。**手动选过的偏好优先于浏览器语言**——
+  // 原来只在「没选过」时才跳，于是选了日语的英文访客会被丢回中文页（实测抓到的 bug）。
   try {
-    var saved = localStorage.getItem("kitsunome-lang");
+    var want = localStorage.getItem("kitsunome-lang") || detectLang();
+    var here = document.documentElement.getAttribute("data-lang");
     var atRoot = location.pathname === "/" || /\\/index\\.html$/.test(location.pathname);
-    if (!saved && atRoot && document.documentElement.getAttribute("data-page") === "index") {
-      var prefs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "zh"];
-      for (var i = 0; i < prefs.length; i++) {
-        var l = String(prefs[i]).toLowerCase();
-        if (l.indexOf("zh") === 0) break;
-        if (l.indexOf("ja") === 0) { location.replace("/ja/"); break; }
-        if (l.indexOf("en") === 0) { location.replace("/en/"); break; }
-      }
-    }
+    var to = want === "en" ? "/en/" : want === "ja" ? "/ja/" : "/";
+    if (atRoot && want && here && want !== here) location.replace(to);
   } catch (e) {}
+
+  function detectLang() {
+    var prefs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || "zh"];
+    for (var i = 0; i < prefs.length; i++) {
+      var l = String(prefs[i]).toLowerCase();
+      if (l.indexOf("zh") === 0) return "zh";
+      if (l.indexOf("ja") === 0) return "ja";
+      if (l.indexOf("en") === 0) return "en";
+    }
+    return "zh";
+  }
 })();
 </script>
 </body>
